@@ -309,3 +309,12 @@ export interface Flashcard {
     intervalo_dias?: number;
     fator_facilidade?: number;
 }
+
+// --- SEQUÊNCIA DE ESTUDOS (STREAKS) E RECORDES ---
+export interface UserStudyStreak {
+    sequencia_dias_atual: number;
+    sequencia_dias_recorde: number;
+    questoes_hoje: number;
+    questoes_recorde_diario: number;
+    ultimo_dia_estudado?: string | null; // "YYYY-MM-DD"
+}

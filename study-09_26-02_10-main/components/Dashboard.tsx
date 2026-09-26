@@ -13,6 +13,8 @@ import { parseDate, formatDateToYYYYMMDD } from '../src/utils/dateUtils';
 import PlanFilter from './PlanFilter';
 import GreetingCard from './GreetingCard';
 import ExamCountdownCard from './ExamCountdownCard';
+import StudyStreakCard from './StudyStreakCard';
+import { UserStudyStreak } from '../types';
 
 type AugmentedHistoryLog = HistoryLog & {
     disciplineName: string;
@@ -36,13 +38,15 @@ interface DashboardProps {
     onDeleteExam: (examId: string) => void;
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
+    streak?: UserStudyStreak;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam, onEditExam, onDeleteExam, selectedFilterPlanIds, onSelectPlans }) => {
+const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam, onEditExam, onDeleteExam, selectedFilterPlanIds, onSelectPlans, streak }) => {
     const [isDailyDetailModalOpen, setIsDailyDetailModalOpen] = React.useState(false);
     const [selectedDateForModal, setSelectedDateForModal] = React.useState<Date | null>(null);
 
     const dashboardData = React.useMemo(() => {
+
         // Filter plans based on selectedFilterPlanIds
         const plansToAggregate = selectedFilterPlanIds.includes('all')
             ? plans
@@ -185,6 +189,24 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
         ? dashboardData.studyLogsByDate.get(formatDateToYYYYMMDD(selectedDateForModal))?.logs || []
         : [];
 
+    const effectiveStreak: UserStudyStreak = React.useMemo(() => {
+        const base = streak || {
+            sequencia_dias_atual: 0,
+            sequencia_dias_recorde: 0,
+            questoes_hoje: 0,
+            questoes_recorde_diario: 0,
+            ultimo_dia_estudado: null,
+        };
+        const todayQuestions = dashboardData.dailyQuestions;
+        const currentToday = Math.max(base.questoes_hoje || 0, todayQuestions);
+        const recordQuestions = Math.max(base.questoes_recorde_diario || 0, currentToday);
+        return {
+            ...base,
+            questoes_hoje: currentToday,
+            questoes_recorde_diario: recordQuestions,
+        };
+    }, [streak, dashboardData.dailyQuestions]);
+
   return (
     <>
         <header>
@@ -206,7 +228,11 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
                 />
             </div>
 
+            {/* Bloco de Métricas Visuais: Ofensiva de Estudos */}
+            <StudyStreakCard streak={effectiveStreak} />
+
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+
                 <StatCard title="Tempo total de estudo" value={formatTime(dashboardData.totalStudyMinutes)} />
                 <StatCard title="Total de Disciplinas" value={`${dashboardData.totalDisciplines}`} />
                 <StatCard title="Total de Tópicos" value={`${dashboardData.totalTopics}`} />
