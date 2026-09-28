@@ -19,6 +19,7 @@ type AggregatedTopic = Topic & {
     accuracy: number;
     lastStudied: string | null;
     revisionStatus: RevisionStatus;
+    weight?: number;
 }
 
 type AggregatedDiscipline = {
@@ -223,7 +224,7 @@ const DisciplineRow: React.FC<{
                             {discipline.name}
                             <RevisionIndicator status={discipline.revisionStatus} />
                         </div>
-                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Peso: {discipline.weight.toFixed(1)}</span>
+                        <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Peso: {Number.isInteger(discipline.weight) ? discipline.weight.toFixed(1) : discipline.weight}</span>
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
@@ -280,6 +281,78 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
         });
     };
     
+    const plansToAggregate = React.useMemo(() => {
+        return selectedFilterPlanIds.includes('all')
+            ? plans
+            : plans.filter(p => selectedFilterPlanIds.includes(p.id));
+    }, [plans, selectedFilterPlanIds]);
+
+    // 1. Obtenção Dinâmica dos Pesos:
+    // Extraia os valores únicos da propriedade peso/weight de disciplinas e tópicos cadastrados e ordene de forma decrescente
+    const availableWeights = React.useMemo(() => {
+        const weightsSet = new Set<number>();
+        const targetPlans = plansToAggregate.length > 0 ? plansToAggregate : plans;
+
+        targetPlans.forEach(plan => {
+            (plan.disciplines || []).forEach(disc => {
+                const rawDiscWeight = (disc as any).peso !== undefined && (disc as any).peso !== null
+                    ? (disc as any).peso
+                    : (disc.weight !== undefined && disc.weight !== null ? disc.weight : undefined);
+
+                if (rawDiscWeight !== undefined && rawDiscWeight !== null) {
+                    const num = Number(rawDiscWeight);
+                    if (!isNaN(num)) {
+                        weightsSet.add(num);
+                    }
+                }
+
+                // Check topics in case topics have individual weights/pesos
+                (disc.topicsList || []).forEach((topic: any) => {
+                    const rawTopicWeight = topic.peso !== undefined && topic.peso !== null
+                        ? topic.peso
+                        : (topic.weight !== undefined && topic.weight !== null ? topic.weight : undefined);
+
+                    if (rawTopicWeight !== undefined && rawTopicWeight !== null) {
+                        const tNum = Number(rawTopicWeight);
+                        if (!isNaN(tNum)) {
+                            weightsSet.add(tNum);
+                        }
+                    }
+                });
+            });
+        });
+
+        // Fallback to all plans if current filter returned no weights
+        if (weightsSet.size === 0 && plans.length > 0) {
+            plans.forEach(plan => {
+                (plan.disciplines || []).forEach(disc => {
+                    const rawDiscWeight = (disc as any).peso !== undefined && (disc as any).peso !== null
+                        ? (disc as any).peso
+                        : (disc.weight !== undefined && disc.weight !== null ? disc.weight : undefined);
+                    if (rawDiscWeight !== undefined && rawDiscWeight !== null) {
+                        const num = Number(rawDiscWeight);
+                        if (!isNaN(num)) {
+                            weightsSet.add(num);
+                        }
+                    }
+                });
+            });
+        }
+
+        // Ordene esses valores de forma decrescente (ex: 3.0, 2.5, 1.2)
+        return Array.from(weightsSet).sort((a, b) => b - a);
+    }, [plansToAggregate, plans]);
+
+    // Reset weight filter if the selected weight is no longer present
+    React.useEffect(() => {
+        if (weightFilter !== 'Todas') {
+            const exists = availableWeights.some(w => Math.abs(w - weightFilter) < 0.0001);
+            if (!exists && availableWeights.length > 0) {
+                setWeightFilter('Todas');
+            }
+        }
+    }, [availableWeights, weightFilter]);
+
     const aggregatedData = React.useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -295,10 +368,6 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
             return date;
         };
 
-        const plansToAggregate = selectedFilterPlanIds.includes('all')
-            ? plans
-            : plans.filter(p => selectedFilterPlanIds.includes(p.id));
-
         const disciplineMap = new Map<string, Omit<AggregatedDiscipline, 'topics' | 'revisionStatus'> & { topics: AggregatedTopic[], revisionStatus: RevisionStatus }>();
         const allLogs: (HistoryLog & {planId: string, disciplineId: string})[] = [];
         const allRevisions: Revision[] = [];
@@ -312,11 +381,15 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
                     allRevisions.push(...disc.revisions);
                 }
 
+                const discWeight = (disc as any).peso !== undefined && (disc as any).peso !== null
+                    ? Number((disc as any).peso)
+                    : (disc.weight !== undefined && disc.weight !== null ? Number(disc.weight) : 1.0);
+
                 if (!disciplineMap.has(disc.name)) {
                     disciplineMap.set(disc.name, {
                         name: disc.name,
                         color: disc.color,
-                        weight: disc.weight || 1.0,
+                        weight: discWeight,
                         topics: [],
                         totalTopics: 0,
                         completedTopics: 0,
@@ -334,6 +407,12 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
                 aggDisc.originalDisciplines.push({ planId: plan.id, disciplineId: disc.id });
                 
                 (disc.topicsList || []).forEach(topic => {
+                    const topicWeight = (topic as any).peso !== undefined && (topic as any).peso !== null
+                        ? Number((topic as any).peso)
+                        : ((topic as any).weight !== undefined && (topic as any).weight !== null 
+                            ? Number((topic as any).weight) 
+                            : discWeight);
+
                     aggDisc.topics.push({
                         ...topic,
                         originalPlanId: plan.id,
@@ -344,7 +423,8 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
                         accuracy: 0,
                         lastStudied: null,
                         revisionStatus: null,
-                        incidence: topic.incidence || 'Média'
+                        incidence: topic.incidence || 'Média',
+                        weight: topicWeight
                     });
                 });
             });
@@ -369,6 +449,14 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
             // Apply incidence filter
             if (incidenceFilter !== 'Todas') {
                 topicArray = topicArray.filter(t => t.incidence === incidenceFilter);
+            }
+
+            // Apply weight filter to topics
+            if (weightFilter !== 'Todas') {
+                topicArray = topicArray.filter(t => {
+                    const tWeight = t.weight !== undefined ? t.weight : aggDisc.weight;
+                    return Math.abs(tWeight - weightFilter) < 0.0001;
+                });
             }
 
             let discRevisionStatus: RevisionStatus = null;
@@ -439,7 +527,14 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
             // Hide disciplines with no topics after filtering
             if (d.topics.length === 0) return false;
             // Apply weight filter
-            if (weightFilter !== 'Todas' && d.weight !== weightFilter) return false;
+            if (weightFilter !== 'Todas') {
+                const matchesDisc = Math.abs(d.weight - weightFilter) < 0.0001;
+                const hasMatchingTopics = d.topics.some(t => {
+                    const tWeight = t.weight !== undefined ? t.weight : d.weight;
+                    return Math.abs(tWeight - weightFilter) < 0.0001;
+                });
+                if (!matchesDisc && !hasMatchingTopics) return false;
+            }
             return true;
         });
 
@@ -478,7 +573,7 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
             masteredCount,
             incidenceCounts
         };
-    }, [plans, selectedFilterPlanIds, incidenceFilter, weightFilter, disciplineSortOrder]);
+    }, [plansToAggregate, incidenceFilter, weightFilter, disciplineSortOrder]);
 
 
     return (
@@ -521,13 +616,14 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
                             <select 
                                 value={weightFilter} 
                                 onChange={(e) => setWeightFilter(e.target.value === 'Todas' ? 'Todas' : Number(e.target.value))}
-                                className="w-full bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-emerald-500 outline-none appearance-none"
+                                className="w-full bg-gray-800 border border-gray-700 text-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-emerald-500 outline-none appearance-none cursor-pointer"
                             >
                                 <option value="Todas">Todos os Pesos</option>
-                                <option value={2.0}>Peso 2.0</option>
-                                <option value={1.5}>Peso 1.5</option>
-                                <option value={1.0}>Peso 1.0</option>
-                                <option value={0.5}>Peso 0.5</option>
+                                {availableWeights.map((w) => (
+                                    <option key={w} value={w}>
+                                        Peso {Number.isInteger(w) ? w.toFixed(1) : w}
+                                    </option>
+                                ))}
                             </select>
                             <ChevronDownIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
                         </div>

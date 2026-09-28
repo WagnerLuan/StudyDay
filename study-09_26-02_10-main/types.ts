@@ -58,6 +58,8 @@ export interface Topic {
     questionLink?: string;
     completionDate?: string;
     incidence?: TopicIncidence;
+    weight?: number;
+    peso?: number;
 }
 
 export interface Revision {
@@ -90,6 +92,7 @@ export interface Discipline {
     color: string; // Now a hex string e.g., '#RRGGBB'
     topicsText?: string;
     weight: number; // Added weight property
+    peso?: number;
     
     // Detailed view properties
     studyTimeInMinutes?: number;

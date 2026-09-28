@@ -257,14 +257,21 @@ const App: React.FC = () => {
           const disciplines: Discipline[] = plan.disciplines.map((disc: any) => ({
             ...disc,
             topicsText: disc.topics_text,
-            weight: disc.weight || 1.0,
+            weight: disc.peso !== undefined && disc.peso !== null
+              ? Number(disc.peso)
+              : (disc.weight !== undefined && disc.weight !== null ? Number(disc.weight) : 1.0),
+            peso: disc.peso !== undefined && disc.peso !== null
+              ? Number(disc.peso)
+              : (disc.weight !== undefined && disc.weight !== null ? Number(disc.weight) : 1.0),
             topicsList: disc.topics.map((topic: any) => ({
               id: topic.id, 
               name: topic.name, 
               status: topic.status, 
               questionLink: topic.question_link, 
               completionDate: topic.completion_date, 
-              incidence: topic.incidence
+              incidence: topic.incidence,
+              weight: topic.weight !== undefined ? Number(topic.weight) : (topic.peso !== undefined ? Number(topic.peso) : undefined),
+              peso: topic.peso !== undefined ? Number(topic.peso) : (topic.weight !== undefined ? Number(topic.weight) : undefined),
             })),
             historyLogs: disc.history_logs.map((log: any) => {
               const [year, month, day] = log.log_date.split('-');
