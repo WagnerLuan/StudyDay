@@ -36,7 +36,7 @@ import { showSuccess, showError, showLoading, dismissToast } from './utils/toast
 import { parseTopicsText } from './utils/topicUtils';
 import { parseDate, getTodayAsYYYYMMDDLocal, formatDateToYYYYMMDD } from './utils/dateUtils';
 import { parseTimeToMinutes } from './utils/timeUtils';
-import { DEFAULT_STREAK, calculateStreakOnStudy, recalculateStreakFromEntries, StudyLogEntry } from './utils/streakUtils';
+import { DEFAULT_STREAK, recalculateStreakFromEntries, StudyLogEntry } from './utils/streakUtils';
 
 import EditCycleSessionsModal from '../components/EditCycleSessionsModal';
 import ViewHistoryLogModal from '../components/ViewHistoryLogModal';
@@ -55,8 +55,8 @@ const recalculatePlanStats = (plan: StudyPlan): StudyPlan => {
 
         logs.forEach(log => {
             totalDiscMinutes += parseTimeToMinutes(log.time);
-            totalDiscCorrect += (log.correct || 0);
-            totalDiscIncorrect += (log.incorrect || 0);
+            totalDiscCorrect += Math.max(0, parseInt(String(log.correct), 10) || 0);
+            totalDiscIncorrect += Math.max(0, parseInt(String(log.incorrect), 10) || 0);
         });
         
         const studiedTopicsCount = (discipline.topicsList || []).filter(t => t.status === 'Concluído').length;
@@ -75,12 +75,12 @@ const recalculatePlanStats = (plan: StudyPlan): StudyPlan => {
 
         totalPlanMinutes += totalDiscMinutes;
         totalPlanCorrect += totalDiscCorrect;
-        totalPlanQuestions += (totalDiscCorrect + totalDiscIncorrect);
+        totalPlanQuestions += (Number(totalDiscCorrect) + Number(totalDiscIncorrect));
 
         return updatedDiscipline;
     });
 
-    const overallPerformance = totalPlanQuestions > 0 ? (totalPlanCorrect / totalPlanQuestions) * 100 : 0;
+    const overallPerformance = totalPlanQuestions > 0 ? (Number(totalPlanCorrect) / Number(totalPlanQuestions)) * 100 : 0;
 
     return {
         ...plan,
@@ -288,9 +288,11 @@ const App: React.FC = () => {
               const [year, month, day] = log.log_date.split('-');
               const localDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
               localDate.setHours(0, 0, 0, 0);
+              const correct = Math.max(0, parseInt(String(log.correct_questions), 10) || 0);
+              const incorrect = Math.max(0, parseInt(String(log.incorrect_questions), 10) || 0);
               return {
                 id: log.id, date: localDate.toLocaleDateString('pt-BR'), topic: log.topic_name, time: log.study_time,
-                correct: log.correct_questions || 0, incorrect: log.incorrect_questions || 0, pages: log.pages,
+                correct, incorrect, pages: log.pages,
                 category: log.category, material: log.material, comments: log.comments,
               };
             }),
@@ -340,20 +342,12 @@ const App: React.FC = () => {
         if (profileErr) {
           console.error("Erro ao carregar streak da tabela profiles no Supabase:", profileErr);
         } else if (profileData) {
-          // Se o registro existir no banco, utilize explicitamente os valores persistidos
+          // Se o registro existir no banco, utilize explicitamente os valores persistidos como números
           setUserStreak({
-            sequencia_dias_atual: typeof profileData.sequencia_dias_atual === 'number'
-              ? profileData.sequencia_dias_atual
-              : (Number(profileData.sequencia_dias_atual) || 0),
-            sequencia_dias_recorde: typeof profileData.sequencia_dias_recorde === 'number'
-              ? profileData.sequencia_dias_recorde
-              : (Number(profileData.sequencia_dias_recorde) || 0),
-            questoes_hoje: typeof profileData.questoes_hoje === 'number'
-              ? profileData.questoes_hoje
-              : (Number(profileData.questoes_hoje) || 0),
-            questoes_recorde_diario: typeof profileData.questoes_recorde_diario === 'number'
-              ? profileData.questoes_recorde_diario
-              : (Number(profileData.questoes_recorde_diario) || 0),
+            sequencia_dias_atual: Math.max(0, parseInt(String(profileData.sequencia_dias_atual), 10) || 0),
+            sequencia_dias_recorde: Math.max(0, parseInt(String(profileData.sequencia_dias_recorde), 10) || 0),
+            questoes_hoje: Math.max(0, parseInt(String(profileData.questoes_hoje), 10) || 0),
+            questoes_recorde_diario: Math.max(0, parseInt(String(profileData.questoes_recorde_diario), 10) || 0),
             ultimo_dia_estudado: profileData.ultimo_dia_estudado || null,
           });
         }
@@ -400,10 +394,10 @@ const App: React.FC = () => {
         (payload: any) => {
           if (payload.new && payload.new.sequencia_dias_atual !== undefined) {
             setUserStreak({
-              sequencia_dias_atual: payload.new.sequencia_dias_atual ?? 0,
-              sequencia_dias_recorde: payload.new.sequencia_dias_recorde ?? 0,
-              questoes_hoje: payload.new.questoes_hoje ?? 0,
-              questoes_recorde_diario: payload.new.questoes_recorde_diario ?? 0,
+              sequencia_dias_atual: Math.max(0, parseInt(String(payload.new.sequencia_dias_atual), 10) || 0),
+              sequencia_dias_recorde: Math.max(0, parseInt(String(payload.new.sequencia_dias_recorde), 10) || 0),
+              questoes_hoje: Math.max(0, parseInt(String(payload.new.questoes_hoje), 10) || 0),
+              questoes_recorde_diario: Math.max(0, parseInt(String(payload.new.questoes_recorde_diario), 10) || 0),
               ultimo_dia_estudado: payload.new.ultimo_dia_estudado ?? null,
             });
           }
@@ -421,10 +415,10 @@ const App: React.FC = () => {
         .then(({ data, error }) => {
           if (!error && data && data.sequencia_dias_atual !== undefined) {
             setUserStreak({
-              sequencia_dias_atual: data.sequencia_dias_atual ?? 0,
-              sequencia_dias_recorde: data.sequencia_dias_recorde ?? 0,
-              questoes_hoje: data.questoes_hoje ?? 0,
-              questoes_recorde_diario: data.questoes_recorde_diario ?? 0,
+              sequencia_dias_atual: Math.max(0, parseInt(String(data.sequencia_dias_atual), 10) || 0),
+              sequencia_dias_recorde: Math.max(0, parseInt(String(data.sequencia_dias_recorde), 10) || 0),
+              questoes_hoje: Math.max(0, parseInt(String(data.questoes_hoje), 10) || 0),
+              questoes_recorde_diario: Math.max(0, parseInt(String(data.questoes_recorde_diario), 10) || 0),
               ultimo_dia_estudado: data.ultimo_dia_estudado ?? null,
             });
           }
@@ -518,12 +512,14 @@ const App: React.FC = () => {
         console.error("Erro ao carregar simulados para recálculo do streak:", simsError);
       }
 
-      // Consolidar todas as entradas de estudo ativas
+      // Consolidar todas as entradas de estudo ativas garantindo conversão estrita para número
       const entries: StudyLogEntry[] = [];
 
       (logs || []).forEach((l: any) => {
         if (l.log_date) {
-          const q = (Number(l.correct_questions) || 0) + (Number(l.incorrect_questions) || 0);
+          const correct = Math.max(0, parseInt(String(l.correct_questions), 10) || 0);
+          const incorrect = Math.max(0, parseInt(String(l.incorrect_questions), 10) || 0);
+          const q = correct + incorrect;
           entries.push({ date: l.log_date, questions: q });
         }
       });
@@ -531,7 +527,12 @@ const App: React.FC = () => {
       (sims || []).forEach((s: any) => {
         if (s.date) {
           const q = (s.disciplines || []).reduce((acc: number, d: any) => {
-            return acc + (d.totalQuestions || (Number(d.correctAnswers) || 0) + (Number(d.incorrectAnswers) || 0) + (Number(d.blankAnswers) || 0));
+            const total = parseInt(String(d.totalQuestions), 10);
+            if (!isNaN(total) && total > 0) return acc + total;
+            const c = Math.max(0, parseInt(String(d.correctAnswers), 10) || 0);
+            const inc = Math.max(0, parseInt(String(d.incorrectAnswers), 10) || 0);
+            const b = Math.max(0, parseInt(String(d.blankAnswers), 10) || 0);
+            return acc + c + inc + b;
           }, 0);
           entries.push({ date: s.date, questions: q });
         }
@@ -543,16 +544,18 @@ const App: React.FC = () => {
       // Atualizar estado no React
       setUserStreak(recalculated);
 
-      // 4. Persistir na tabela profiles do Supabase
+      // 4. Atualização Atômica no Supabase: persistir os 4 valores recalculados estritamente como números
+      const payloadToSave = {
+        sequencia_dias_atual: Math.max(0, parseInt(String(recalculated.sequencia_dias_atual), 10) || 0),
+        sequencia_dias_recorde: Math.max(0, parseInt(String(recalculated.sequencia_dias_recorde), 10) || 0),
+        questoes_hoje: Math.max(0, parseInt(String(recalculated.questoes_hoje), 10) || 0),
+        questoes_recorde_diario: Math.max(0, parseInt(String(recalculated.questoes_recorde_diario), 10) || 0),
+        ultimo_dia_estudado: recalculated.ultimo_dia_estudado || null,
+      };
+
       const { data: updateData, error: updateErr } = await supabase
         .from('profiles')
-        .update({
-          sequencia_dias_atual: recalculated.sequencia_dias_atual,
-          sequencia_dias_recorde: recalculated.sequencia_dias_recorde,
-          questoes_hoje: recalculated.questoes_hoje,
-          questoes_recorde_diario: recalculated.questoes_recorde_diario,
-          ultimo_dia_estudado: recalculated.ultimo_dia_estudado,
-        })
+        .update(payloadToSave)
         .eq('id', userId)
         .select();
 
@@ -561,11 +564,7 @@ const App: React.FC = () => {
       } else if (!updateData || updateData.length === 0) {
         const { error: upsertErr } = await supabase.from('profiles').upsert({
           id: userId,
-          sequencia_dias_atual: recalculated.sequencia_dias_atual,
-          sequencia_dias_recorde: recalculated.sequencia_dias_recorde,
-          questoes_hoje: recalculated.questoes_hoje,
-          questoes_recorde_diario: recalculated.questoes_recorde_diario,
-          ultimo_dia_estudado: recalculated.ultimo_dia_estudado,
+          ...payloadToSave,
         });
         if (upsertErr) {
           console.error("Erro ao fazer upsert de métricas recalculadas no Supabase:", upsertErr);
@@ -751,10 +750,13 @@ const App: React.FC = () => {
       const formattedTime = `${Math.floor(newTimeInMinutes / 60)}h ${newTimeInMinutes % 60}m`;
       const selectedTopic = plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.topicsList?.find(t => t.id === topicId);
 
+      const correctQuestions = Math.max(0, parseInt(String(logData.questionsCorrect), 10) || 0);
+      const incorrectQuestions = Math.max(0, parseInt(String(logData.questionsIncorrect), 10) || 0);
+
       const logPayload = {
         user_id: userId, discipline_id: disciplineId, topic_name: selectedTopic?.name || 'Tópico',
         log_date: logData.date.toISOString().split('T')[0], study_time: formattedTime,
-        correct_questions: logData.questionsCorrect, incorrect_questions: logData.questionsIncorrect,
+        correct_questions: correctQuestions, incorrect_questions: incorrectQuestions,
         category: logData.category, material: logData.material, comments: logData.comments,
       };
 
@@ -790,7 +792,7 @@ const App: React.FC = () => {
                 due_date: reviewDate.toISOString().split('T')[0], status: 'Programada', plan_id: planId,
                 discipline_name: plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.name || 'Disciplina',
                 discipline_color: plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.color || '#8884d8',
-                original_log_info: { date: logData.date.toLocaleDateString('pt-BR'), category: logData.category, time: formattedTime, correct: logData.questionsCorrect, incorrect: logData.questionsIncorrect },
+                original_log_info: { date: logData.date.toLocaleDateString('pt-BR'), category: logData.category, time: formattedTime, correct: correctQuestions, incorrect: incorrectQuestions },
               });
 
               if (logData.addToBlockPlanning) {

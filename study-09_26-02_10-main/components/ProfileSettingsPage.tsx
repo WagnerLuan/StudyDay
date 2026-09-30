@@ -42,10 +42,10 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
         e.preventDefault();
         setIsUpdatingMetrics(true);
         const updates: Partial<UserStudyStreak> = {
-            sequencia_dias_atual: Math.max(0, Number(sequenciaAtual) || 0),
-            sequencia_dias_recorde: Math.max(0, Number(sequenciaRecorde) || 0),
-            questoes_recorde_diario: Math.max(0, Number(questoesRecorde) || 0),
-            questoes_hoje: Math.max(0, Number(questoesHoje) || 0),
+            sequencia_dias_atual: Math.max(0, parseInt(String(sequenciaAtual), 10) || 0),
+            sequencia_dias_recorde: Math.max(0, parseInt(String(sequenciaRecorde), 10) || 0),
+            questoes_recorde_diario: Math.max(0, parseInt(String(questoesRecorde), 10) || 0),
+            questoes_hoje: Math.max(0, parseInt(String(questoesHoje), 10) || 0),
         };
 
         try {

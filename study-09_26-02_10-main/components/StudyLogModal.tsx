@@ -168,8 +168,8 @@ const StudyLogModal: React.FC<StudyLogModalProps> = ({ isOpen, onClose, onSave, 
         if (type === 'checkbox') {
              setFormData(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (['questionsCorrect', 'questionsIncorrect', 'pagesStart', 'pagesEnd', 'reviewDays'].includes(name)) {
-            const numValue = Number(value);
-            setFormData(prev => ({ ...prev, [name]: isNaN(numValue) ? 0 : numValue }));
+            const numValue = parseInt(value, 10);
+            setFormData(prev => ({ ...prev, [name]: isNaN(numValue) ? 0 : Math.max(0, numValue) }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
         }
@@ -195,7 +195,15 @@ const StudyLogModal: React.FC<StudyLogModalProps> = ({ isOpen, onClose, onSave, 
             alert('Por favor, selecione pelo menos uma categoria.');
             return;
         }
-        onSave({ logData: formData, disciplineId: selectedDisciplineId, topicId: selectedTopicId });
+        const sanitizedFormData: StudyLogFormData = {
+            ...formData,
+            questionsCorrect: Math.max(0, parseInt(String(formData.questionsCorrect), 10) || 0),
+            questionsIncorrect: Math.max(0, parseInt(String(formData.questionsIncorrect), 10) || 0),
+            pagesStart: Math.max(0, parseInt(String(formData.pagesStart), 10) || 0),
+            pagesEnd: Math.max(0, parseInt(String(formData.pagesEnd), 10) || 0),
+            reviewDays: Math.max(1, parseInt(String(formData.reviewDays), 10) || 7),
+        };
+        onSave({ logData: sanitizedFormData, disciplineId: selectedDisciplineId, topicId: selectedTopicId });
     };
 
     if (!isOpen) return null;

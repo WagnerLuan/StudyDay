@@ -86,11 +86,11 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
         };
         
         const todayLogs = allLogs.filter(log => parseDate(log.date).getTime() === today.getTime());
-        const dailyStudyTime = todayLogs.reduce((sum, log) => sum + parseTimeToMinutes(log.time), 0);
-        const dailyCorrect = todayLogs.reduce((sum, log) => sum + (log.correct || 0), 0);
-        const dailyIncorrect = todayLogs.reduce((sum, log) => sum + (log.incorrect || 0), 0);
-        const dailyQuestions = dailyCorrect + dailyIncorrect;
-        const dailyAccuracy = dailyQuestions > 0 ? (dailyCorrect / dailyQuestions) * 100 : 0;
+        const dailyStudyTime = todayLogs.reduce((sum, log) => Number(sum) + parseTimeToMinutes(log.time), 0);
+        const dailyCorrect = todayLogs.reduce((sum, log) => Number(sum) + (Math.max(0, parseInt(String(log.correct), 10) || 0)), 0);
+        const dailyIncorrect = todayLogs.reduce((sum, log) => Number(sum) + (Math.max(0, parseInt(String(log.incorrect), 10) || 0)), 0);
+        const dailyQuestions = Number(dailyCorrect) + Number(dailyIncorrect);
+        const dailyAccuracy = dailyQuestions > 0 ? (Number(dailyCorrect) / Number(dailyQuestions)) * 100 : 0;
             
         // Weekly Chart Data
         const weeklyStudyDataMap = new Map<string, { time: number; questions: number }>();
@@ -110,7 +110,9 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
               const dayName = dayNames[parseDate(log.date).getDay()];
               const current = weeklyStudyDataMap.get(dayName)!;
               current.time += parseTimeToMinutes(log.time);
-              current.questions += log.correct + log.incorrect;
+              const c = Math.max(0, parseInt(String(log.correct), 10) || 0);
+              const inc = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
+              current.questions += Number(c) + Number(inc);
               weeklyStudyDataMap.set(dayName, current);
           });
 
@@ -201,13 +203,16 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
         const todayStr = getTodayAsYYYYMMDDLocal();
         const hasStudiedToday = base.ultimo_dia_estudado === todayStr;
         
-        // Se o último dia estudado for hoje, usa o total de questões de hoje sincronizado com o banco
-        // Se o último dia estudado não for hoje (ex: registro excluído ou novo dia), questões de hoje é estritamente 0
-        const currentToday = hasStudiedToday ? (base.questoes_hoje || 0) : 0;
-        const recordQuestions = Math.max(base.questoes_recorde_diario || 0, currentToday);
+        // Conversão obrigatória para número para evitar concatenação de strings
+        const questoesHojeBanco = Math.max(0, parseInt(String(base.questoes_hoje), 10) || 0);
+        const recordeBanco = Math.max(0, parseInt(String(base.questoes_recorde_diario), 10) || 0);
+        const currentToday = hasStudiedToday ? questoesHojeBanco : 0;
+        const recordQuestions = Math.max(recordeBanco, currentToday);
 
         return {
             ...base,
+            sequencia_dias_atual: Math.max(0, parseInt(String(base.sequencia_dias_atual), 10) || 0),
+            sequencia_dias_recorde: Math.max(0, parseInt(String(base.sequencia_dias_recorde), 10) || 0),
             questoes_hoje: currentToday,
             questoes_recorde_diario: recordQuestions,
         };

@@ -24,11 +24,11 @@ const SimuladoListItem: React.FC<{
         let totalPoints = 0;
 
         simulado.disciplines.forEach(d => {
-            totalCorrect += d.correctAnswers;
-            totalIncorrect += d.incorrectAnswers;
-            totalBlank += d.blankAnswers;
-            totalQuestions += d.totalQuestions;
-            totalPoints += d.correctAnswers * d.weight;
+            totalCorrect += Number(d.correctAnswers) || 0;
+            totalIncorrect += Number(d.incorrectAnswers) || 0;
+            totalBlank += Number(d.blankAnswers) || 0;
+            totalQuestions += Number(d.totalQuestions) || 0;
+            totalPoints += (Number(d.correctAnswers) || 0) * (Number(d.weight) || 1);
         });
 
         const performance = totalQuestions > 0 ? (totalCorrect / totalQuestions) * 100 : 0;
@@ -132,10 +132,10 @@ const SimuladosPage: React.FC<SimuladosPageProps> = ({
         if (!latestSimulado) return { acertos: 0, erros: 0, brancos: 0, performance: 0, totalQuestions: 0 };
         let acertos = 0, erros = 0, brancos = 0, totalQuestions = 0;
         latestSimulado.disciplines.forEach(d => {
-            acertos += d.correctAnswers;
-            erros += d.incorrectAnswers;
-            brancos += d.blankAnswers;
-            totalQuestions += d.totalQuestions;
+            acertos += Number(d.correctAnswers) || 0;
+            erros += Number(d.incorrectAnswers) || 0;
+            brancos += Number(d.blankAnswers) || 0;
+            totalQuestions += Number(d.totalQuestions) || 0;
         });
         const performance = totalQuestions > 0 ? (acertos / totalQuestions) * 100 : 0;
         return { acertos, erros, brancos, performance, totalQuestions };
@@ -149,8 +149,8 @@ const SimuladosPage: React.FC<SimuladosPageProps> = ({
         
         filteredSimulados.forEach(simulado => {
             simulado.disciplines.forEach(d => {
-                totalCorrect += d.correctAnswers;
-                totalQuestions += d.totalQuestions;
+                totalCorrect += Number(d.correctAnswers) || 0;
+                totalQuestions += Number(d.totalQuestions) || 0;
             });
         });
         
@@ -166,9 +166,9 @@ const SimuladosPage: React.FC<SimuladosPageProps> = ({
                 let totalQuestions = 0;
                 let totalPontos = 0;
                 simulado.disciplines.forEach(d => {
-                    totalCorrect += d.correctAnswers;
-                    totalQuestions += d.totalQuestions;
-                    totalPontos += d.correctAnswers * d.weight;
+                    totalCorrect += Number(d.correctAnswers) || 0;
+                    totalQuestions += Number(d.totalQuestions) || 0;
+                    totalPontos += (Number(d.correctAnswers) || 0) * (Number(d.weight) || 1);
                 });
                 const performance = totalQuestions > 0 ? (totalCorrect / totalQuestions) * 100 : 0;
                 const dateObj = new Date(simulado.date + 'T00:00:00');

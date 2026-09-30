@@ -9,7 +9,12 @@ interface StudyStreakCardProps {
 
 export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoading = false }) => {
   const today = getTodayAsYYYYMMDDLocal();
-  const studiedToday = streak.ultimo_dia_estudado === today;
+  const studiedToday = streak?.ultimo_dia_estudado === today;
+
+  const seqAtual = Math.max(0, parseInt(String(streak?.sequencia_dias_atual), 10) || 0);
+  const seqRecorde = Math.max(0, parseInt(String(streak?.sequencia_dias_recorde), 10) || 0);
+  const questHoje = Math.max(0, parseInt(String(streak?.questoes_hoje), 10) || 0);
+  const questRecorde = Math.max(0, parseInt(String(streak?.questoes_recorde_diario), 10) || 0);
 
   if (isLoading) {
     return (
@@ -99,14 +104,14 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {streak.sequencia_dias_atual || 0}
+              {seqAtual}
             </span>
             <span className="text-xs font-semibold text-gray-400">
-              {(streak.sequencia_dias_atual === 1) ? 'dia' : 'dias'}
+              {seqAtual === 1 ? 'dia' : 'dias'}
             </span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">
-            {streak.sequencia_dias_atual > 0 
+            {seqAtual > 0 
               ? 'Dias seguidos estudando'
               : 'Comece sua sequência hoje!'}
           </p>
@@ -122,10 +127,10 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {streak.sequencia_dias_recorde || 0}
+              {seqRecorde}
             </span>
             <span className="text-xs font-semibold text-gray-400">
-              {(streak.sequencia_dias_recorde === 1) ? 'dia' : 'dias'}
+              {seqRecorde === 1 ? 'dia' : 'dias'}
             </span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">
@@ -143,7 +148,7 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {streak.questoes_hoje || 0}
+              {questHoje}
             </span>
             <span className="text-xs font-semibold text-gray-400">questões</span>
           </div>
@@ -162,7 +167,7 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {streak.questoes_recorde_diario || 0}
+              {questRecorde}
             </span>
             <span className="text-xs font-semibold text-gray-400">num único dia</span>
           </div>
