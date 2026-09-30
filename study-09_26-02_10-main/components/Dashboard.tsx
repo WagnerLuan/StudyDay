@@ -9,7 +9,7 @@ import { StudyPlan, SubjectPerformance, HistoryLog, WeeklyStudy, Exam } from '..
 import RecentActivities from './RecentActivities';
 import StudyCalendar from './StudyCalendar';
 import DailyStudyDetailModal from './DailyStudyDetailModal';
-import { parseDate, formatDateToYYYYMMDD } from '../src/utils/dateUtils';
+import { parseDate, formatDateToYYYYMMDD, getTodayAsYYYYMMDDLocal } from '../src/utils/dateUtils';
 import PlanFilter from './PlanFilter';
 import GreetingCard from './GreetingCard';
 import ExamCountdownCard from './ExamCountdownCard';
@@ -198,8 +198,16 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
             questoes_recorde_diario: 0,
             ultimo_dia_estudado: null,
         };
-        const todayQuestions = dashboardData.dailyQuestions;
-        const currentToday = Math.max(base.questoes_hoje || 0, todayQuestions);
+        const todayStr = getTodayAsYYYYMMDDLocal();
+        const hasStudiedToday = base.ultimo_dia_estudado === todayStr;
+        const todayQuestionsFromLogs = dashboardData.dailyQuestions || 0;
+        
+        // Se o último dia estudado for hoje, usa as questões dos logs de hoje ou o valor persistido
+        // Se o último dia não for hoje (ex: registro foi deletado), questões hoje é estritamente 0 (ou o valor de logs restantes)
+        const currentToday = hasStudiedToday
+            ? Math.max(base.questoes_hoje || 0, todayQuestionsFromLogs)
+            : todayQuestionsFromLogs;
+
         const recordQuestions = Math.max(base.questoes_recorde_diario || 0, currentToday);
         return {
             ...base,

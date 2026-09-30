@@ -101,3 +101,71 @@ export function normalizeStreakForToday(streak: UserStudyStreak, questionsDoneTo
     questoes_recorde_diario: recordeQuestoes,
   };
 }
+
+export interface StudyLogEntry {
+  date: string; // YYYY-MM-DD
+  questions: number;
+}
+
+/**
+ * Recalcula a sequência de estudos (streak), a data do último dia estudado
+ * e a soma das questões de hoje a partir dos registros ativos restantes no banco.
+ * Considera o fuso horário de Brasília (America/Sao_Paulo).
+ */
+export function recalculateStreakFromEntries(
+  entries: StudyLogEntry[],
+  currentMetrics: Partial<UserStudyStreak> = {}
+): UserStudyStreak {
+  const today = getTodayAsYYYYMMDDLocal();
+
+  // 1. Recálculo das questões de hoje: soma de todos os registros ativos para a data de hoje
+  const questoesHoje = entries
+    .filter(e => e.date === today)
+    .reduce((sum, e) => sum + Math.max(0, Number(e.questions) || 0), 0);
+
+  // 2. Coletar datas distintas com estudos registrados
+  const distinctDates = Array.from(new Set(entries.map(e => e.date).filter(Boolean)));
+  // Ordenar decrescente (mais recente primeiro)
+  distinctDates.sort((a, b) => b.localeCompare(a));
+
+  if (distinctDates.length === 0) {
+    return {
+      sequencia_dias_atual: 0,
+      sequencia_dias_recorde: currentMetrics.sequencia_dias_recorde || 0,
+      questoes_hoje: 0,
+      questoes_recorde_diario: currentMetrics.questoes_recorde_diario || 0,
+      ultimo_dia_estudado: null,
+    };
+  }
+
+  const latestDate = distinctDates[0];
+  const diffFromToday = getDaysDiff(latestDate, today);
+
+  let sequenciaAtual = 0;
+
+  // Se o último dia estudado for hoje (diff === 0) ou ontem (diff === 1), a sequência está ativa
+  if (diffFromToday === 0 || diffFromToday === 1) {
+    sequenciaAtual = 1;
+    for (let i = 0; i < distinctDates.length - 1; i++) {
+      if (getDaysDiff(distinctDates[i + 1], distinctDates[i]) === 1) {
+        sequenciaAtual++;
+      } else {
+        break;
+      }
+    }
+  } else {
+    // Se o último dia estudado for anterior a ontem (diff > 1), a sequência diária foi interrompida
+    sequenciaAtual = 0;
+  }
+
+  const recordeSequencia = Math.max(currentMetrics.sequencia_dias_recorde || 0, sequenciaAtual);
+  const recordeQuestoes = Math.max(currentMetrics.questoes_recorde_diario || 0, questoesHoje);
+
+  return {
+    sequencia_dias_atual: sequenciaAtual,
+    sequencia_dias_recorde: recordeSequencia,
+    questoes_hoje: questoesHoje,
+    questoes_recorde_diario: recordeQuestoes,
+    ultimo_dia_estudado: latestDate,
+  };
+}

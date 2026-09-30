@@ -36,7 +36,7 @@ import { showSuccess, showError, showLoading, dismissToast } from './utils/toast
 import { parseTopicsText } from './utils/topicUtils';
 import { parseDate, getTodayAsYYYYMMDDLocal, formatDateToYYYYMMDD } from './utils/dateUtils';
 import { parseTimeToMinutes } from './utils/timeUtils';
-import { DEFAULT_STREAK, calculateStreakOnStudy } from './utils/streakUtils';
+import { DEFAULT_STREAK, calculateStreakOnStudy, recalculateStreakFromEntries, StudyLogEntry } from './utils/streakUtils';
 
 import EditCycleSessionsModal from '../components/EditCycleSessionsModal';
 import ViewHistoryLogModal from '../components/ViewHistoryLogModal';
@@ -468,6 +468,7 @@ const App: React.FC = () => {
     try {
       const { error } = await supabase.from('study_plans').delete().eq('id', planToDelete).eq('user_id', session.user.id);
       if (error) throw error;
+      await syncStreakMetricsFromDatabase(session.user.id);
       showSuccess("Plano excluído!");
       fetchPlans(session.user.id);
       if (selectedPlanId === planToDelete) setSelectedPlanId(null);
@@ -482,10 +483,114 @@ const App: React.FC = () => {
     try {
       const { error } = await supabase.from('disciplines').delete().eq('id', disciplineToDelete.disciplineId).eq('user_id', session.user.id);
       if (error) throw error;
+      await syncStreakMetricsFromDatabase(session.user.id);
       showSuccess("Disciplina excluída!");
       fetchPlans(session.user.id);
     } catch (e: any) { showError("Erro: " + e.message); }
     finally { dismissToast(loadingToastId); setDisciplineDeleteModalOpen(false); setDisciplineToDelete(null); }
+  };
+
+  /**
+   * Recalcula com precisão matemática a sequência de estudos (streak),
+   * o total de questoes_hoje (somando apenas registros ativos de hoje no fuso de Brasília)
+   * e o ultimo_dia_estudado (revertendo para o dia anterior caso o único registro de hoje tenha sido excluído),
+   * persistindo tudo na tabela profiles do Supabase.
+   */
+  const syncStreakMetricsFromDatabase = async (userId: string) => {
+    try {
+      // 1. Buscar todos os history_logs do usuário no Supabase
+      const { data: logs, error: logsError } = await supabase
+        .from('history_logs')
+        .select('log_date, correct_questions, incorrect_questions')
+        .eq('user_id', userId);
+
+      if (logsError) {
+        console.error("Erro ao carregar history_logs para recálculo do streak:", logsError);
+      }
+
+      // 2. Buscar todos os simulados do usuário no Supabase
+      const { data: sims, error: simsError } = await supabase
+        .from('simulados')
+        .select('date, disciplines')
+        .eq('user_id', userId);
+
+      if (simsError) {
+        console.error("Erro ao carregar simulados para recálculo do streak:", simsError);
+      }
+
+      // Consolidar todas as entradas de estudo ativas
+      const entries: StudyLogEntry[] = [];
+
+      (logs || []).forEach((l: any) => {
+        if (l.log_date) {
+          const q = (Number(l.correct_questions) || 0) + (Number(l.incorrect_questions) || 0);
+          entries.push({ date: l.log_date, questions: q });
+        }
+      });
+
+      (sims || []).forEach((s: any) => {
+        if (s.date) {
+          const q = (s.disciplines || []).reduce((acc: number, d: any) => {
+            return acc + (d.totalQuestions || (Number(d.correctAnswers) || 0) + (Number(d.incorrectAnswers) || 0) + (Number(d.blankAnswers) || 0));
+          }, 0);
+          entries.push({ date: s.date, questions: q });
+        }
+      });
+
+      // 3. Buscar perfil atual para manter recordes históricos intactos
+      let currentStreak = userStreak;
+      const { data: profileData, error: profileErr } = await supabase
+        .from('profiles')
+        .select('sequencia_dias_atual, sequencia_dias_recorde, questoes_hoje, questoes_recorde_diario, ultimo_dia_estudado')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profileErr) {
+        console.error("Erro ao consultar perfil para recálculo do streak:", profileErr);
+      } else if (profileData) {
+        currentStreak = {
+          sequencia_dias_atual: profileData.sequencia_dias_atual ?? 0,
+          sequencia_dias_recorde: profileData.sequencia_dias_recorde ?? 0,
+          questoes_hoje: profileData.questoes_hoje ?? 0,
+          questoes_recorde_diario: profileData.questoes_recorde_diario ?? 0,
+          ultimo_dia_estudado: profileData.ultimo_dia_estudado ?? null,
+        };
+      }
+
+      // 4. Executar recálculo estrito
+      const recalculated = recalculateStreakFromEntries(entries, currentStreak);
+
+      // Atualizar estado no React
+      setUserStreak(recalculated);
+
+      // 5. Persistir na tabela profiles do Supabase
+      const { data: updateData, error: updateErr } = await supabase
+        .from('profiles')
+        .update({
+          sequencia_dias_atual: recalculated.sequencia_dias_atual,
+          sequencia_dias_recorde: recalculated.sequencia_dias_recorde,
+          questoes_hoje: recalculated.questoes_hoje,
+          questoes_recorde_diario: recalculated.questoes_recorde_diario,
+          ultimo_dia_estudado: recalculated.ultimo_dia_estudado,
+        })
+        .eq('id', userId)
+        .select();
+
+      if (updateErr) {
+        console.error("Erro ao persistir métricas recalculadas no Supabase:", updateErr);
+      } else if (!updateData || updateData.length === 0) {
+        await supabase.from('profiles').upsert({
+          id: userId,
+          sequencia_dias_atual: recalculated.sequencia_dias_atual,
+          sequencia_dias_recorde: recalculated.sequencia_dias_recorde,
+          questoes_hoje: recalculated.questoes_hoje,
+          questoes_recorde_diario: recalculated.questoes_recorde_diario,
+          ultimo_dia_estudado: recalculated.ultimo_dia_estudado,
+        });
+      }
+    } catch (err) {
+      console.error("Erro inesperado ao sincronizar métricas de streak após alteração:", err);
+    }
   };
 
   const handleConfirmDeleteLog = async () => {
@@ -537,6 +642,10 @@ const App: React.FC = () => {
 
       const { error } = await supabase.from('history_logs').delete().eq('id', logToDelete.logId).eq('user_id', session.user.id);
       if (error) throw error;
+
+      // Recalcular métricas de estudo (questões de hoje e último dia estudado) após exclusão
+      await syncStreakMetricsFromDatabase(session.user.id);
+
       showSuccess("Registro excluído!");
       fetchPlans(session.user.id);
     } catch (e: any) { showError("Erro: " + e.message); }
@@ -776,10 +885,8 @@ const App: React.FC = () => {
         }).eq('id', currentCycle.id).eq('user_id', userId);
       }
 
-      // Atualizar sequência de estudos (Streaks) e Recordes
-      const logQuestions = (logData.questionsCorrect || 0) + (logData.questionsIncorrect || 0);
-      const studyDateStr = logData.date.toISOString().split('T')[0];
-      await handleRecordStudyStreak(studyDateStr, logQuestions);
+      // Recalcular métricas de estudo (questões de hoje, sequência e último dia)
+      await syncStreakMetricsFromDatabase(userId);
 
       showSuccess("Estudo registrado!");
       fetchPlans(userId);
@@ -1141,9 +1248,8 @@ const App: React.FC = () => {
             if (error) throw error;
         }
 
-        // Atualizar streak e recorde de questões a partir do simulado
-        const totalSimuladoQuestions = (s.disciplines || []).reduce((acc: number, d: any) => acc + (d.totalQuestions || (d.correctAnswers || 0) + (d.incorrectAnswers || 0) + (d.blankAnswers || 0)), 0);
-        await handleRecordStudyStreak(s.date, totalSimuladoQuestions);
+        // Recalcular métricas de estudo (questões de hoje e streak) a partir dos registros ativos
+        await syncStreakMetricsFromDatabase(session.user.id);
 
         showSuccess("Simulado salvo!");
         fetchPlans(session.user.id);
@@ -1159,6 +1265,10 @@ const App: React.FC = () => {
     try {
         const { error } = await supabase.from('simulados').delete().eq('id', id).eq('user_id', session.user.id);
         if (error) throw error;
+
+        // Recalcular métricas de estudo (questões de hoje e streak) após exclusão
+        await syncStreakMetricsFromDatabase(session.user.id);
+
         showSuccess("Excluído!");
         fetchPlans(session.user.id);
     } catch (e: any) { showError("Erro: " + e.message); }
@@ -1220,68 +1330,9 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRecordStudyStreak = async (studyDateStr?: string, questionsAdded: number = 0) => {
+  const handleRecordStudyStreak = async () => {
     if (!session?.user?.id) return;
-    const userId = session.user.id;
-
-    // Buscar os dados mais recentes do Supabase para garantir sincronia entre abas e dispositivos
-    let baseStreak = userStreak;
-    try {
-      const { data: profileData } = await supabase
-        .from('profiles')
-        .select('sequencia_dias_atual, sequencia_dias_recorde, questoes_hoje, questoes_recorde_diario, ultimo_dia_estudado')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (profileData && profileData.sequencia_dias_atual !== undefined) {
-        baseStreak = {
-          sequencia_dias_atual: profileData.sequencia_dias_atual ?? 0,
-          sequencia_dias_recorde: profileData.sequencia_dias_recorde ?? 0,
-          questoes_hoje: profileData.questoes_hoje ?? 0,
-          questoes_recorde_diario: profileData.questoes_recorde_diario ?? 0,
-          ultimo_dia_estudado: profileData.ultimo_dia_estudado ?? null,
-        };
-      }
-    } catch (e) {
-      // continua com baseStreak
-    }
-
-    const next = calculateStreakOnStudy(baseStreak, {
-      studyDate: studyDateStr,
-      questionsAdded,
-    });
-
-    setUserStreak(next);
-
-    // Salvar diretamente no Supabase atrelado ao user_id autenticado
-    try {
-      const { data: updateData, error } = await supabase.from('profiles').update({
-        sequencia_dias_atual: next.sequencia_dias_atual,
-        sequencia_dias_recorde: next.sequencia_dias_recorde,
-        questoes_hoje: next.questoes_hoje,
-        questoes_recorde_diario: next.questoes_recorde_diario,
-        ultimo_dia_estudado: next.ultimo_dia_estudado,
-      }).eq('id', userId).select();
-
-      if (error) {
-        console.error("Erro ao salvar streak na tabela profiles no Supabase:", error);
-      } else if (!updateData || updateData.length === 0) {
-        // Se a linha ainda não existia em profiles para esse id, garante sua criação via upsert
-        const { error: upsertErr } = await supabase.from('profiles').upsert({
-          id: userId,
-          sequencia_dias_atual: next.sequencia_dias_atual,
-          sequencia_dias_recorde: next.sequencia_dias_recorde,
-          questoes_hoje: next.questoes_hoje,
-          questoes_recorde_diario: next.questoes_recorde_diario,
-          ultimo_dia_estudado: next.ultimo_dia_estudado,
-        });
-        if (upsertErr) {
-          console.error("Erro no upsert de streak em profiles:", upsertErr);
-        }
-      }
-    } catch (err) {
-      console.error("Erro inesperado ao persistir streak no Supabase:", err);
-    }
+    await syncStreakMetricsFromDatabase(session.user.id);
   };
 
   const handleUpdateStreakMetrics = async (updates: Partial<UserStudyStreak>) => {
