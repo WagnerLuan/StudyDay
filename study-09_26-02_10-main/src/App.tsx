@@ -36,7 +36,7 @@ import { showSuccess, showError, showLoading, dismissToast } from './utils/toast
 import { parseTopicsText } from './utils/topicUtils';
 import { parseDate, getTodayAsYYYYMMDDLocal, formatDateToYYYYMMDD } from './utils/dateUtils';
 import { parseTimeToMinutes } from './utils/timeUtils';
-import { DEFAULT_STREAK, calculateStreakOnStudy, saveLocalStreak, loadLocalStreak } from './utils/streakUtils';
+import { DEFAULT_STREAK, calculateStreakOnStudy } from './utils/streakUtils';
 
 import EditCycleSessionsModal from '../components/EditCycleSessionsModal';
 import ViewHistoryLogModal from '../components/ViewHistoryLogModal';
@@ -237,9 +237,18 @@ const App: React.FC = () => {
     }
   }, [selectedFilterPlanIds]);
 
-  const [userStreak, setUserStreak] = React.useState<UserStudyStreak>(() => {
-    return loadLocalStreak() || DEFAULT_STREAK;
-  });
+  const [userStreak, setUserStreak] = React.useState<UserStudyStreak>(DEFAULT_STREAK);
+
+  // Limpeza de resquícios de streak no localStorage (migrado 100% para o Supabase)
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.removeItem('studyday_user_streak');
+      } catch (e) {
+        // ignore
+      }
+    }
+  }, []);
 
   const fetchPlans = React.useCallback(async (userId: string) => {
 
@@ -318,7 +327,7 @@ const App: React.FC = () => {
         .eq('user_id', userId);
       setAllFlashcards(cardsData || []);
 
-      // Carregar Streak e Recordes do Usuário
+      // Carregar Streak e Recordes do Usuário diretamente do Supabase
       try {
         const { data: profileData, error: profileErr } = await supabase
           .from('profiles')
@@ -335,7 +344,8 @@ const App: React.FC = () => {
             ultimo_dia_estudado: profileData.ultimo_dia_estudado ?? null,
           };
           setUserStreak(loadedStreak);
-          saveLocalStreak(loadedStreak);
+        } else if (profileErr && profileErr.code === '42703') {
+          console.warn("Colunas de streak não encontradas na tabela profiles. Execute o script supabase_streaks.sql no Supabase.");
         }
       } catch (err) {
         console.warn("Métricas de streak na tabela profiles ainda não disponíveis:", err);
@@ -354,8 +364,67 @@ const App: React.FC = () => {
       fetchPlans(session.user.id);
     } else if (!isAuthenticated && !isSupabaseLoading) {
       setPlans([]); setAllCycles([]); setStudyBlocks([]); setSimulados([]); setExams([]); setIsDataLoading(false);
+      setUserStreak(DEFAULT_STREAK);
     }
   }, [isAuthenticated, isSupabaseLoading, fetchPlans, session?.user?.id]);
+
+  // Sincronização multi-dispositivo do Streak em tempo real via Supabase
+  React.useEffect(() => {
+    if (!isAuthenticated || !session?.user?.id) return;
+    const userId = session.user.id;
+
+    // 1. Escuta mudanças em tempo real na tabela profiles para este usuário
+    const profileChannel = supabase
+      .channel(`realtime-profile-streak-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${userId}`,
+        },
+        (payload: any) => {
+          if (payload.new && payload.new.sequencia_dias_atual !== undefined) {
+            setUserStreak({
+              sequencia_dias_atual: payload.new.sequencia_dias_atual ?? 0,
+              sequencia_dias_recorde: payload.new.sequencia_dias_recorde ?? 0,
+              questoes_hoje: payload.new.questoes_hoje ?? 0,
+              questoes_recorde_diario: payload.new.questoes_recorde_diario ?? 0,
+              ultimo_dia_estudado: payload.new.ultimo_dia_estudado ?? null,
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    // 2. Ao focar na aba/janela (ex: estudou no celular e voltou para o computador)
+    const handleWindowFocus = () => {
+      supabase
+        .from('profiles')
+        .select('sequencia_dias_atual, sequencia_dias_recorde, questoes_hoje, questoes_recorde_diario, ultimo_dia_estudado')
+        .eq('id', userId)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (!error && data && data.sequencia_dias_atual !== undefined) {
+            setUserStreak({
+              sequencia_dias_atual: data.sequencia_dias_atual ?? 0,
+              sequencia_dias_recorde: data.sequencia_dias_recorde ?? 0,
+              questoes_hoje: data.questoes_hoje ?? 0,
+              questoes_recorde_diario: data.questoes_recorde_diario ?? 0,
+              ultimo_dia_estudado: data.ultimo_dia_estudado ?? null,
+            });
+          }
+        });
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+
+    return () => {
+      supabase.removeChannel(profileChannel);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, [isAuthenticated, session?.user?.id]);
 
   const handleSavePlan = async (planUpdates: Partial<StudyPlan> & { id?: string }) => {
     if (!session?.user?.id) return;
@@ -1142,28 +1211,51 @@ const App: React.FC = () => {
     if (!session?.user?.id) return;
     const userId = session.user.id;
 
-    setUserStreak(prev => {
-      const next = calculateStreakOnStudy(prev, {
-        studyDate: studyDateStr,
-        questionsAdded,
-      });
-      saveLocalStreak(next);
+    // Buscar os dados mais recentes do Supabase para garantir sincronia entre abas e dispositivos
+    let baseStreak = userStreak;
+    try {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('sequencia_dias_atual, sequencia_dias_recorde, questoes_hoje, questoes_recorde_diario, ultimo_dia_estudado')
+        .eq('id', userId)
+        .maybeSingle();
 
-      // Sincronizar assincronamente com o Supabase
-      supabase.from('profiles').update({
+      if (profileData && profileData.sequencia_dias_atual !== undefined) {
+        baseStreak = {
+          sequencia_dias_atual: profileData.sequencia_dias_atual ?? 0,
+          sequencia_dias_recorde: profileData.sequencia_dias_recorde ?? 0,
+          questoes_hoje: profileData.questoes_hoje ?? 0,
+          questoes_recorde_diario: profileData.questoes_recorde_diario ?? 0,
+          ultimo_dia_estudado: profileData.ultimo_dia_estudado ?? null,
+        };
+      }
+    } catch (e) {
+      // continua com baseStreak
+    }
+
+    const next = calculateStreakOnStudy(baseStreak, {
+      studyDate: studyDateStr,
+      questionsAdded,
+    });
+
+    setUserStreak(next);
+
+    // Salvar diretamente no Supabase atrelado ao user_id autenticado
+    try {
+      const { error } = await supabase.from('profiles').update({
         sequencia_dias_atual: next.sequencia_dias_atual,
         sequencia_dias_recorde: next.sequencia_dias_recorde,
         questoes_hoje: next.questoes_hoje,
         questoes_recorde_diario: next.questoes_recorde_diario,
         ultimo_dia_estudado: next.ultimo_dia_estudado,
-      }).eq('id', userId).then(({ error }) => {
-        if (error) {
-          console.warn("Aviso ao salvar streak no Supabase (colunas podem requerer execução do script SQL):", error.message);
-        }
-      });
+      }).eq('id', userId);
 
-      return next;
-    });
+      if (error) {
+        console.warn("Aviso ao salvar streak no Supabase (verifique se a migração SQL foi executada):", error.message);
+      }
+    } catch (err) {
+      console.warn("Erro ao atualizar streak no Supabase:", err);
+    }
   };
 
   const handleUpdateStreakMetrics = async (updates: Partial<UserStudyStreak>) => {
@@ -1175,8 +1267,6 @@ const App: React.FC = () => {
         ...userStreak,
         ...updates,
       };
-      setUserStreak(updatedStreak);
-      saveLocalStreak(updatedStreak);
 
       const { error } = await supabase.from('profiles').update({
         sequencia_dias_atual: updatedStreak.sequencia_dias_atual,
@@ -1187,13 +1277,14 @@ const App: React.FC = () => {
 
       if (error) {
         if (error.code === '42703') {
-          showError("Métricas salvas localmente! Execute o script SQL no Supabase para salvar no banco de dados.");
+          showError("Colunas ainda não criadas no banco. Execute o script supabase_streaks.sql no SQL Editor do Supabase!");
           return;
         }
         throw error;
       }
 
-      showSuccess("Métricas de estudo atualizadas com sucesso!");
+      setUserStreak(updatedStreak);
+      showSuccess("Métricas de estudo atualizadas no Supabase com sucesso!");
     } catch (e: any) {
       showError("Erro ao salvar métricas: " + e.message);
     } finally {

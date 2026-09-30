@@ -21,11 +21,10 @@ export const parseDate = (dateStr: string): Date => {
 };
 
 export const getTodayAsYYYYMMDDLocal = (): string => {
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = (today.getMonth() + 1).toString().padStart(2, '0');
-    const day = today.getDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    const [day, month, year] = new Date()
+        .toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+        .split('/');
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 };
 
 export const formatDateToYYYYMMDD = (date: Date): string => {

@@ -9,8 +9,6 @@ export const DEFAULT_STREAK: UserStudyStreak = {
   ultimo_dia_estudado: null,
 };
 
-export const LOCAL_STREAK_KEY = 'studyday_user_streak';
-
 export function getDaysDiff(fromDateStr: string, toDateStr: string): number {
   const [y1, m1, d1] = fromDateStr.split('-').map(Number);
   const [y2, m2, d2] = toDateStr.split('-').map(Number);
@@ -102,26 +100,4 @@ export function normalizeStreakForToday(streak: UserStudyStreak, questionsDoneTo
     questoes_hoje: questoesHoje,
     questoes_recorde_diario: recordeQuestoes,
   };
-}
-
-export function saveLocalStreak(streak: UserStudyStreak) {
-  if (typeof window !== 'undefined') {
-    try {
-      localStorage.setItem(LOCAL_STREAK_KEY, JSON.stringify(streak));
-    } catch (e) {
-      // ignore
-    }
-  }
-}
-
-export function loadLocalStreak(): UserStudyStreak | null {
-  if (typeof window !== 'undefined') {
-    try {
-      const data = localStorage.getItem(LOCAL_STREAK_KEY);
-      if (data) return JSON.parse(data);
-    } catch (e) {
-      // ignore
-    }
-  }
-  return null;
 }
