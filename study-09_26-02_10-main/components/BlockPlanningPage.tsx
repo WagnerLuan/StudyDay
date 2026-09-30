@@ -263,7 +263,11 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
                 {days.map((day, index) => {
                     const dateForDay = weekDays[index];
                     const dateStr = dateForDay.toISOString().split('T')[0];
-                    const isToday = new Date().toISOString().split('T')[0] === dateStr;
+                    const [todayD, todayM, todayY] = new Date()
+                        .toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+                        .split('/');
+                    const todayBrasiliaStr = `${todayY}-${todayM.padStart(2, '0')}-${todayD.padStart(2, '0')}`;
+                    const isToday = todayBrasiliaStr === dateStr;
 
                     const dayBlocks = filteredBlocks
                         .filter(b => {
