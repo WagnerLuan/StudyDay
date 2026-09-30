@@ -39,9 +39,10 @@ interface DashboardProps {
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
     streak?: UserStudyStreak;
+    isStreakLoading?: boolean;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam, onEditExam, onDeleteExam, selectedFilterPlanIds, onSelectPlans, streak }) => {
+const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam, onEditExam, onDeleteExam, selectedFilterPlanIds, onSelectPlans, streak, isStreakLoading = false }) => {
     const [isDailyDetailModalOpen, setIsDailyDetailModalOpen] = React.useState(false);
     const [selectedDateForModal, setSelectedDateForModal] = React.useState<Date | null>(null);
 
@@ -229,7 +230,7 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
             </div>
 
             {/* Bloco de Métricas Visuais: Ofensiva de Estudos */}
-            <StudyStreakCard streak={effectiveStreak} />
+            <StudyStreakCard streak={effectiveStreak} isLoading={isStreakLoading} />
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
 

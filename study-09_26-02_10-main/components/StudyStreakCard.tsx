@@ -4,11 +4,48 @@ import { getTodayAsYYYYMMDDLocal } from '../src/utils/dateUtils';
 
 interface StudyStreakCardProps {
   streak: UserStudyStreak;
+  isLoading?: boolean;
 }
 
-export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak }) => {
+export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoading = false }) => {
   const today = getTodayAsYYYYMMDDLocal();
   const studiedToday = streak.ultimo_dia_estudado === today;
+
+  if (isLoading) {
+    return (
+      <div className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 border border-amber-500/20 rounded-2xl p-6 shadow-2xl animate-pulse">
+        {/* Luz ambiente sutil decorativa de fundo */}
+        <div className="absolute -top-16 -right-16 w-56 h-56 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-16 -left-16 w-56 h-56 bg-emerald-500/5 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Cabeçalho Skeleton */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10 border-b border-gray-700/60 pb-5">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-gray-700/80 animate-pulse" />
+            <div className="space-y-2">
+              <div className="h-5 w-44 bg-gray-700 rounded animate-pulse" />
+              <div className="h-3 w-60 bg-gray-700/60 rounded animate-pulse" />
+            </div>
+          </div>
+          <div className="h-8 w-48 bg-gray-700/50 rounded-full animate-pulse" />
+        </div>
+
+        {/* Grid de 4 Métricas Skeleton */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-5 relative z-10">
+          {[1, 2, 3, 4].map(idx => (
+            <div key={idx} className="bg-gray-800/60 border border-gray-700/50 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="h-3 w-24 bg-gray-700/80 rounded animate-pulse" />
+                <div className="h-4 w-4 bg-gray-700 rounded-full animate-pulse" />
+              </div>
+              <div className="h-8 w-16 bg-gray-700 rounded animate-pulse" />
+              <div className="h-3 w-32 bg-gray-700/50 rounded animate-pulse" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative overflow-hidden bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 border border-amber-500/30 rounded-2xl p-6 shadow-2xl">

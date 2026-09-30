@@ -238,6 +238,7 @@ const App: React.FC = () => {
   }, [selectedFilterPlanIds]);
 
   const [userStreak, setUserStreak] = React.useState<UserStudyStreak>(DEFAULT_STREAK);
+  const [isStreakLoading, setIsStreakLoading] = React.useState<boolean>(true);
 
   // Limpeza de resquícios de streak no localStorage (migrado 100% para o Supabase)
   React.useEffect(() => {
@@ -253,6 +254,7 @@ const App: React.FC = () => {
   const fetchPlans = React.useCallback(async (userId: string) => {
 
     setIsDataLoading(true);
+    setIsStreakLoading(true);
     try {
       const { data: plansData, error: plansError } = await supabase
         .from('study_plans')
@@ -335,20 +337,30 @@ const App: React.FC = () => {
           .eq('id', userId)
           .maybeSingle();
 
-        if (!profileErr && profileData) {
-          const loadedStreak: UserStudyStreak = {
-            sequencia_dias_atual: profileData.sequencia_dias_atual ?? 0,
-            sequencia_dias_recorde: profileData.sequencia_dias_recorde ?? 0,
-            questoes_hoje: profileData.questoes_hoje ?? 0,
-            questoes_recorde_diario: profileData.questoes_recorde_diario ?? 0,
-            ultimo_dia_estudado: profileData.ultimo_dia_estudado ?? null,
-          };
-          setUserStreak(loadedStreak);
-        } else if (profileErr && profileErr.code === '42703') {
-          console.warn("Colunas de streak não encontradas na tabela profiles. Execute o script supabase_streaks.sql no Supabase.");
+        if (profileErr) {
+          console.error("Erro ao carregar streak da tabela profiles no Supabase:", profileErr);
+        } else if (profileData) {
+          // Se o registro existir no banco, utilize explicitamente os valores persistidos
+          setUserStreak({
+            sequencia_dias_atual: typeof profileData.sequencia_dias_atual === 'number'
+              ? profileData.sequencia_dias_atual
+              : (Number(profileData.sequencia_dias_atual) || 0),
+            sequencia_dias_recorde: typeof profileData.sequencia_dias_recorde === 'number'
+              ? profileData.sequencia_dias_recorde
+              : (Number(profileData.sequencia_dias_recorde) || 0),
+            questoes_hoje: typeof profileData.questoes_hoje === 'number'
+              ? profileData.questoes_hoje
+              : (Number(profileData.questoes_hoje) || 0),
+            questoes_recorde_diario: typeof profileData.questoes_recorde_diario === 'number'
+              ? profileData.questoes_recorde_diario
+              : (Number(profileData.questoes_recorde_diario) || 0),
+            ultimo_dia_estudado: profileData.ultimo_dia_estudado || null,
+          });
         }
       } catch (err) {
-        console.warn("Métricas de streak na tabela profiles ainda não disponíveis:", err);
+        console.error("Erro inesperado ao consultar métricas de streak no Supabase:", err);
+      } finally {
+        setIsStreakLoading(false);
       }
 
     } catch (e: any) {
@@ -356,6 +368,7 @@ const App: React.FC = () => {
       showError("Erro ao processar dados: " + e.message);
     } finally {
       setIsDataLoading(false);
+      setIsStreakLoading(false);
     }
   }, []);
 
@@ -1242,19 +1255,32 @@ const App: React.FC = () => {
 
     // Salvar diretamente no Supabase atrelado ao user_id autenticado
     try {
-      const { error } = await supabase.from('profiles').update({
+      const { data: updateData, error } = await supabase.from('profiles').update({
         sequencia_dias_atual: next.sequencia_dias_atual,
         sequencia_dias_recorde: next.sequencia_dias_recorde,
         questoes_hoje: next.questoes_hoje,
         questoes_recorde_diario: next.questoes_recorde_diario,
         ultimo_dia_estudado: next.ultimo_dia_estudado,
-      }).eq('id', userId);
+      }).eq('id', userId).select();
 
       if (error) {
-        console.warn("Aviso ao salvar streak no Supabase (verifique se a migração SQL foi executada):", error.message);
+        console.error("Erro ao salvar streak na tabela profiles no Supabase:", error);
+      } else if (!updateData || updateData.length === 0) {
+        // Se a linha ainda não existia em profiles para esse id, garante sua criação via upsert
+        const { error: upsertErr } = await supabase.from('profiles').upsert({
+          id: userId,
+          sequencia_dias_atual: next.sequencia_dias_atual,
+          sequencia_dias_recorde: next.sequencia_dias_recorde,
+          questoes_hoje: next.questoes_hoje,
+          questoes_recorde_diario: next.questoes_recorde_diario,
+          ultimo_dia_estudado: next.ultimo_dia_estudado,
+        });
+        if (upsertErr) {
+          console.error("Erro no upsert de streak em profiles:", upsertErr);
+        }
       }
     } catch (err) {
-      console.warn("Erro ao atualizar streak no Supabase:", err);
+      console.error("Erro inesperado ao persistir streak no Supabase:", err);
     }
   };
 
@@ -1268,14 +1294,15 @@ const App: React.FC = () => {
         ...updates,
       };
 
-      const { error } = await supabase.from('profiles').update({
+      const { data: updateData, error } = await supabase.from('profiles').update({
         sequencia_dias_atual: updatedStreak.sequencia_dias_atual,
         sequencia_dias_recorde: updatedStreak.sequencia_dias_recorde,
         questoes_recorde_diario: updatedStreak.questoes_recorde_diario,
         questoes_hoje: updatedStreak.questoes_hoje,
-      }).eq('id', userId);
+      }).eq('id', userId).select();
 
       if (error) {
+        console.error("Erro ao salvar métricas no Supabase:", error);
         if (error.code === '42703') {
           showError("Colunas ainda não criadas no banco. Execute o script supabase_streaks.sql no SQL Editor do Supabase!");
           return;
@@ -1283,9 +1310,24 @@ const App: React.FC = () => {
         throw error;
       }
 
+      if (!updateData || updateData.length === 0) {
+        const { error: upsertErr } = await supabase.from('profiles').upsert({
+          id: userId,
+          sequencia_dias_atual: updatedStreak.sequencia_dias_atual,
+          sequencia_dias_recorde: updatedStreak.sequencia_dias_recorde,
+          questoes_recorde_diario: updatedStreak.questoes_recorde_diario,
+          questoes_hoje: updatedStreak.questoes_hoje,
+        });
+        if (upsertErr) {
+          console.error("Erro no upsert de métricas de streak no Supabase:", upsertErr);
+          throw upsertErr;
+        }
+      }
+
       setUserStreak(updatedStreak);
       showSuccess("Métricas de estudo atualizadas no Supabase com sucesso!");
     } catch (e: any) {
+      console.error("Falha ao salvar métricas de streak:", e);
       showError("Erro ao salvar métricas: " + e.message);
     } finally {
       dismissToast(loadingToastId);
@@ -1300,7 +1342,7 @@ const App: React.FC = () => {
     const selectedPlan = plans.find(p => p.id === selectedPlanId);
 
     switch (currentPage) {
-      case 'home': return <Dashboard plans={plans} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} />;
+      case 'home': return <Dashboard plans={plans} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} isStreakLoading={isStreakLoading} />;
       case 'plans': return <PlansPage plans={plans} onCreatePlanRequest={() => { setEditingPlan(null); setPlanModalOpen(true); }} onDeletePlan={id => { setPlanToDelete(id); setPlanDeleteModalOpen(true); }} onViewPlan={id => { setSelectedPlanId(id); setCurrentPage('planDetail'); }} onGeneratePlanFromUrl={handleGeneratePlanFromUrl} />;
       case 'materias': return <DisciplinesPage plans={plans} onViewDiscipline={(pid, did) => { setSelectedDisciplineInfo({ planId: pid, disciplineId: did }); setCurrentPage('disciplineDetail'); }} onEditDiscipline={(pid, did) => { setEditingDiscipline({ planId: pid, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setDisciplineModalOpen(true); }} onDeleteDiscipline={(pid, did) => { setDisciplineToDelete({ planId: pid, disciplineId: did }); setDisciplineDeleteModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'edital': return <EditalPage plans={plans} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalOpen(true); setLogModalContext({ plan: p, discipline: d, topic: t, source: 'edital' }); }} onGenericAddLog={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
@@ -1342,7 +1384,7 @@ const App: React.FC = () => {
         const dPlan = plans.find(p => p.id === dInfo?.planId);
         const dDisc = dPlan?.disciplines.find(d => d.id === dInfo?.disciplineId);
         return dPlan && dDisc ? <DisciplineDetailPage discipline={dDisc} plan={dPlan} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalContext({ plan: p, discipline: d, topic: t }); setLogModalOpen(true); }} onEditLog={(p, d, l) => { setLogModalContext({ plan: p, discipline: d, logToEdit: l }); setLogModalOpen(true); }} onDeleteLog={(pid, did, lid) => { setLogToDelete({ planId: pid, disciplineId: did, logId: lid }); setLogDeleteModalOpen(true); }} onBack={() => setCurrentPage('planDetail')} /> : null;
-      default: return <Dashboard plans={plans} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} />;
+      default: return <Dashboard plans={plans} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} isStreakLoading={isStreakLoading} />;
     }
   };
 
