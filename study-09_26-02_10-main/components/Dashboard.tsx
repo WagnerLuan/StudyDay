@@ -200,21 +200,18 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
         };
         const todayStr = getTodayAsYYYYMMDDLocal();
         const hasStudiedToday = base.ultimo_dia_estudado === todayStr;
-        const todayQuestionsFromLogs = dashboardData.dailyQuestions || 0;
         
-        // Se o último dia estudado for hoje, usa as questões dos logs de hoje ou o valor persistido
-        // Se o último dia não for hoje (ex: registro foi deletado), questões hoje é estritamente 0 (ou o valor de logs restantes)
-        const currentToday = hasStudiedToday
-            ? Math.max(base.questoes_hoje || 0, todayQuestionsFromLogs)
-            : todayQuestionsFromLogs;
-
+        // Se o último dia estudado for hoje, usa o total de questões de hoje sincronizado com o banco
+        // Se o último dia estudado não for hoje (ex: registro excluído ou novo dia), questões de hoje é estritamente 0
+        const currentToday = hasStudiedToday ? (base.questoes_hoje || 0) : 0;
         const recordQuestions = Math.max(base.questoes_recorde_diario || 0, currentToday);
+
         return {
             ...base,
             questoes_hoje: currentToday,
             questoes_recorde_diario: recordQuestions,
         };
-    }, [streak, dashboardData.dailyQuestions]);
+    }, [streak]);
 
   return (
     <>

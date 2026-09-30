@@ -537,33 +537,13 @@ const App: React.FC = () => {
         }
       });
 
-      // 3. Buscar perfil atual para manter recordes históricos intactos
-      let currentStreak = userStreak;
-      const { data: profileData, error: profileErr } = await supabase
-        .from('profiles')
-        .select('sequencia_dias_atual, sequencia_dias_recorde, questoes_hoje, questoes_recorde_diario, ultimo_dia_estudado')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (profileErr) {
-        console.error("Erro ao consultar perfil para recálculo do streak:", profileErr);
-      } else if (profileData) {
-        currentStreak = {
-          sequencia_dias_atual: profileData.sequencia_dias_atual ?? 0,
-          sequencia_dias_recorde: profileData.sequencia_dias_recorde ?? 0,
-          questoes_hoje: profileData.questoes_hoje ?? 0,
-          questoes_recorde_diario: profileData.questoes_recorde_diario ?? 0,
-          ultimo_dia_estudado: profileData.ultimo_dia_estudado ?? null,
-        };
-      }
-
-      // 4. Executar recálculo estrito
-      const recalculated = recalculateStreakFromEntries(entries, currentStreak);
+      // 3. Executar recálculo histórico estrito dos recordes (questões e sequência) e ofensiva a partir dos registros ativos restantes
+      const recalculated = recalculateStreakFromEntries(entries);
 
       // Atualizar estado no React
       setUserStreak(recalculated);
 
-      // 5. Persistir na tabela profiles do Supabase
+      // 4. Persistir na tabela profiles do Supabase
       const { data: updateData, error: updateErr } = await supabase
         .from('profiles')
         .update({
@@ -579,7 +559,7 @@ const App: React.FC = () => {
       if (updateErr) {
         console.error("Erro ao persistir métricas recalculadas no Supabase:", updateErr);
       } else if (!updateData || updateData.length === 0) {
-        await supabase.from('profiles').upsert({
+        const { error: upsertErr } = await supabase.from('profiles').upsert({
           id: userId,
           sequencia_dias_atual: recalculated.sequencia_dias_atual,
           sequencia_dias_recorde: recalculated.sequencia_dias_recorde,
@@ -587,6 +567,9 @@ const App: React.FC = () => {
           questoes_recorde_diario: recalculated.questoes_recorde_diario,
           ultimo_dia_estudado: recalculated.ultimo_dia_estudado,
         });
+        if (upsertErr) {
+          console.error("Erro ao fazer upsert de métricas recalculadas no Supabase:", upsertErr);
+        }
       }
     } catch (err) {
       console.error("Erro inesperado ao sincronizar métricas de streak após alteração:", err);
