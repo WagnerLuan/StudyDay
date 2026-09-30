@@ -11,10 +11,10 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
   const today = getTodayAsYYYYMMDDLocal();
   const studiedToday = streak?.ultimo_dia_estudado === today;
 
-  const seqAtual = Math.max(0, parseInt(String(streak?.sequencia_dias_atual), 10) || 0);
-  const seqRecorde = Math.max(0, parseInt(String(streak?.sequencia_dias_recorde), 10) || 0);
-  const questHoje = Math.max(0, parseInt(String(streak?.questoes_hoje), 10) || 0);
-  const questRecorde = Math.max(0, parseInt(String(streak?.questoes_recorde_diario), 10) || 0);
+  const seqAtual = Math.max(0, Number(streak?.sequencia_dias_atual) || 0);
+  const seqRecorde = Math.max(0, Number(streak?.sequencia_dias_recorde) || 0);
+  const questHoje = Math.max(0, Number(streak?.questoes_hoje) || 0);
+  const questRecorde = Math.max(0, Number(streak?.questoes_recorde_diario) || 0);
 
   if (isLoading) {
     return (

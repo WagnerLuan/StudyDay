@@ -63,7 +63,7 @@ const DailyStudyDetailModal: React.FC<DailyStudyDetailModalProps> = ({ isOpen, o
                                             <ClockIcon className="w-4 h-4" /> {log.time}
                                         </span>
                                         <span className="flex items-center gap-1">
-                                            <QuestionMarkCircleIcon className="w-4 h-4" /> {log.correct + log.incorrect} questões ({log.correct} certas)
+                                            <QuestionMarkCircleIcon className="w-4 h-4" /> {(Number(log.correct) || 0) + (Number(log.incorrect) || 0)} questões ({Number(log.correct) || 0} certas)
                                         </span>
                                     </div>
                                 </div>

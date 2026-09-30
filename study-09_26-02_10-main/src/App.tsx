@@ -55,32 +55,33 @@ const recalculatePlanStats = (plan: StudyPlan): StudyPlan => {
 
         logs.forEach(log => {
             totalDiscMinutes += parseTimeToMinutes(log.time);
-            totalDiscCorrect += Math.max(0, parseInt(String(log.correct), 10) || 0);
-            totalDiscIncorrect += Math.max(0, parseInt(String(log.incorrect), 10) || 0);
+            totalDiscCorrect = (Number(totalDiscCorrect) || 0) + Math.max(0, Number(log.correct) || 0);
+            totalDiscIncorrect = (Number(totalDiscIncorrect) || 0) + Math.max(0, Number(log.incorrect) || 0);
         });
         
         const studiedTopicsCount = (discipline.topicsList || []).filter(t => t.status === 'Concluído').length;
+        const discQuestions = (Number(totalDiscCorrect) || 0) + (Number(totalDiscIncorrect) || 0);
 
         const updatedDiscipline: Discipline = {
             ...discipline,
             totalTopics: (discipline.topicsList || []).length,
             studiedTopics: studiedTopicsCount,
             studyTimeInMinutes: totalDiscMinutes,
-            resolvedQuestions: totalPlanQuestions,
+            resolvedQuestions: discQuestions,
             performance: {
                 correct: totalDiscCorrect,
                 incorrect: totalDiscIncorrect,
             },
         };
 
-        totalPlanMinutes += totalDiscMinutes;
-        totalPlanCorrect += totalDiscCorrect;
-        totalPlanQuestions += (Number(totalDiscCorrect) + Number(totalDiscIncorrect));
+        totalPlanMinutes = (Number(totalPlanMinutes) || 0) + totalDiscMinutes;
+        totalPlanCorrect = (Number(totalPlanCorrect) || 0) + totalDiscCorrect;
+        totalPlanQuestions = (Number(totalPlanQuestions) || 0) + discQuestions;
 
         return updatedDiscipline;
     });
 
-    const overallPerformance = totalPlanQuestions > 0 ? (Number(totalPlanCorrect) / Number(totalPlanQuestions)) * 100 : 0;
+    const overallPerformance = totalPlanQuestions > 0 ? ((Number(totalPlanCorrect) || 0) / Number(totalPlanQuestions)) * 100 : 0;
 
     return {
         ...plan,
@@ -251,6 +252,105 @@ const App: React.FC = () => {
     }
   }, []);
 
+  /**
+   * FUNÇÃO DE CÁLCULO BASEADA NOS REGISTROS REAIS (Single Source of Truth)
+   *
+   * 1. Não lê os valores antigos de 'sequencia_dias_recorde' ou 'questoes_recorde_diario'.
+   * 2. Faz uma busca completa nas tabelas de histórico do usuário (user_id):
+   *    a) questoes_hoje: SUM(questoes) onde data = HOJE (fuso América/São_Paulo).
+   *    b) questoes_recorde_diario: GROUP BY data_estudo, SUM(questoes) -> Math.max() de todos os dias.
+   *    c) sequencia_dias_atual: sequência ininterrupta de dias até hoje com ao menos 1 registro.
+   *    d) sequencia_dias_recorde: maior bloco de dias consecutivos registrados no histórico.
+   * 3. Sanitização de Tipos: Aplica Number(valor) || 0 em todas as variáveis numéricas.
+   * 4. Atualização no Supabase: Aplica .update() na tabela profiles enviando os 4 campos recalculados.
+   */
+  const syncStreakMetricsFromDatabase = React.useCallback(async (userId: string) => {
+    try {
+      // 1. Buscar todos os history_logs do usuário no Supabase
+      const { data: logs, error: logsError } = await supabase
+        .from('history_logs')
+        .select('log_date, correct_questions, incorrect_questions')
+        .eq('user_id', userId);
+
+      if (logsError) {
+        console.error("Erro ao carregar history_logs para recálculo do streak:", logsError);
+      }
+
+      // 2. Buscar todos os simulados do usuário no Supabase
+      const { data: sims, error: simsError } = await supabase
+        .from('simulados')
+        .select('date, disciplines')
+        .eq('user_id', userId);
+
+      if (simsError) {
+        console.error("Erro ao carregar simulados para recálculo do streak:", simsError);
+      }
+
+      // Consolidar todas as entradas de estudo ativas aplicando estritamente Number() || 0
+      const entries: StudyLogEntry[] = [];
+
+      (logs || []).forEach((l: any) => {
+        if (l.log_date) {
+          const correct = Math.max(0, Number(l.correct_questions) || 0);
+          const incorrect = Math.max(0, Number(l.incorrect_questions) || 0);
+          const q = (Number(correct) || 0) + (Number(incorrect) || 0);
+          entries.push({ date: l.log_date, questions: q });
+        }
+      });
+
+      (sims || []).forEach((s: any) => {
+        if (s.date) {
+          const q = (s.disciplines || []).reduce((acc: number, d: any) => {
+            const total = Number(d.totalQuestions) || 0;
+            if (total > 0) return (Number(acc) || 0) + total;
+            const c = Math.max(0, Number(d.correctAnswers) || 0);
+            const inc = Math.max(0, Number(d.incorrectAnswers) || 0);
+            const b = Math.max(0, Number(d.blankAnswers) || 0);
+            return (Number(acc) || 0) + c + inc + b;
+          }, 0);
+          entries.push({ date: s.date, questions: Number(q) || 0 });
+        }
+      });
+
+      // 3. Executar recálculo estrito dos recordes e sequências a partir dos registros reais
+      const recalculated = recalculateStreakFromEntries(entries);
+
+      // Atualizar estado no React com os valores recalculados
+      setUserStreak(recalculated);
+
+      // 4. Atualização no Supabase: salvar os 4 campos recalculados como números na tabela profiles
+      const payloadToSave = {
+        sequencia_dias_atual: Math.max(0, Number(recalculated.sequencia_dias_atual) || 0),
+        sequencia_dias_recorde: Math.max(0, Number(recalculated.sequencia_dias_recorde) || 0),
+        questoes_hoje: Math.max(0, Number(recalculated.questoes_hoje) || 0),
+        questoes_recorde_diario: Math.max(0, Number(recalculated.questoes_recorde_diario) || 0),
+        ultimo_dia_estudado: recalculated.ultimo_dia_estudado || null,
+      };
+
+      const { data: updateData, error: updateErr } = await supabase
+        .from('profiles')
+        .update(payloadToSave)
+        .eq('id', userId)
+        .select();
+
+      if (updateErr) {
+        console.error("Erro ao persistir métricas recalculadas no Supabase:", updateErr);
+      } else if (!updateData || updateData.length === 0) {
+        const { error: upsertErr } = await supabase.from('profiles').upsert({
+          id: userId,
+          ...payloadToSave,
+        });
+        if (upsertErr) {
+          console.error("Erro ao fazer upsert de métricas recalculadas no Supabase:", upsertErr);
+        }
+      }
+
+      return recalculated;
+    } catch (err) {
+      console.error("Erro inesperado ao sincronizar métricas de streak após alteração:", err);
+    }
+  }, []);
+
   const fetchPlans = React.useCallback(async (userId: string) => {
 
     setIsDataLoading(true);
@@ -288,8 +388,8 @@ const App: React.FC = () => {
               const [year, month, day] = log.log_date.split('-');
               const localDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
               localDate.setHours(0, 0, 0, 0);
-              const correct = Math.max(0, parseInt(String(log.correct_questions), 10) || 0);
-              const incorrect = Math.max(0, parseInt(String(log.incorrect_questions), 10) || 0);
+              const correct = Math.max(0, Number(log.correct_questions) || 0);
+              const incorrect = Math.max(0, Number(log.incorrect_questions) || 0);
               return {
                 id: log.id, date: localDate.toLocaleDateString('pt-BR'), topic: log.topic_name, time: log.study_time,
                 correct, incorrect, pages: log.pages,
@@ -331,28 +431,11 @@ const App: React.FC = () => {
         .eq('user_id', userId);
       setAllFlashcards(cardsData || []);
 
-      // Carregar Streak e Recordes do Usuário diretamente do Supabase
+      // Sincronizar e calcular métricas de streak e recordes do zero com base nos registros reais
       try {
-        const { data: profileData, error: profileErr } = await supabase
-          .from('profiles')
-          .select('id, sequencia_dias_atual, sequencia_dias_recorde, questoes_hoje, questoes_recorde_diario, ultimo_dia_estudado')
-          .eq('id', userId)
-          .maybeSingle();
-
-        if (profileErr) {
-          console.error("Erro ao carregar streak da tabela profiles no Supabase:", profileErr);
-        } else if (profileData) {
-          // Se o registro existir no banco, utilize explicitamente os valores persistidos como números
-          setUserStreak({
-            sequencia_dias_atual: Math.max(0, parseInt(String(profileData.sequencia_dias_atual), 10) || 0),
-            sequencia_dias_recorde: Math.max(0, parseInt(String(profileData.sequencia_dias_recorde), 10) || 0),
-            questoes_hoje: Math.max(0, parseInt(String(profileData.questoes_hoje), 10) || 0),
-            questoes_recorde_diario: Math.max(0, parseInt(String(profileData.questoes_recorde_diario), 10) || 0),
-            ultimo_dia_estudado: profileData.ultimo_dia_estudado || null,
-          });
-        }
+        await syncStreakMetricsFromDatabase(userId);
       } catch (err) {
-        console.error("Erro inesperado ao consultar métricas de streak no Supabase:", err);
+        console.error("Erro inesperado ao calcular métricas de streak no Supabase:", err);
       } finally {
         setIsStreakLoading(false);
       }
@@ -482,97 +565,6 @@ const App: React.FC = () => {
       fetchPlans(session.user.id);
     } catch (e: any) { showError("Erro: " + e.message); }
     finally { dismissToast(loadingToastId); setDisciplineDeleteModalOpen(false); setDisciplineToDelete(null); }
-  };
-
-  /**
-   * Recalcula com precisão matemática a sequência de estudos (streak),
-   * o total de questoes_hoje (somando apenas registros ativos de hoje no fuso de Brasília)
-   * e o ultimo_dia_estudado (revertendo para o dia anterior caso o único registro de hoje tenha sido excluído),
-   * persistindo tudo na tabela profiles do Supabase.
-   */
-  const syncStreakMetricsFromDatabase = async (userId: string) => {
-    try {
-      // 1. Buscar todos os history_logs do usuário no Supabase
-      const { data: logs, error: logsError } = await supabase
-        .from('history_logs')
-        .select('log_date, correct_questions, incorrect_questions')
-        .eq('user_id', userId);
-
-      if (logsError) {
-        console.error("Erro ao carregar history_logs para recálculo do streak:", logsError);
-      }
-
-      // 2. Buscar todos os simulados do usuário no Supabase
-      const { data: sims, error: simsError } = await supabase
-        .from('simulados')
-        .select('date, disciplines')
-        .eq('user_id', userId);
-
-      if (simsError) {
-        console.error("Erro ao carregar simulados para recálculo do streak:", simsError);
-      }
-
-      // Consolidar todas as entradas de estudo ativas garantindo conversão estrita para número
-      const entries: StudyLogEntry[] = [];
-
-      (logs || []).forEach((l: any) => {
-        if (l.log_date) {
-          const correct = Math.max(0, parseInt(String(l.correct_questions), 10) || 0);
-          const incorrect = Math.max(0, parseInt(String(l.incorrect_questions), 10) || 0);
-          const q = correct + incorrect;
-          entries.push({ date: l.log_date, questions: q });
-        }
-      });
-
-      (sims || []).forEach((s: any) => {
-        if (s.date) {
-          const q = (s.disciplines || []).reduce((acc: number, d: any) => {
-            const total = parseInt(String(d.totalQuestions), 10);
-            if (!isNaN(total) && total > 0) return acc + total;
-            const c = Math.max(0, parseInt(String(d.correctAnswers), 10) || 0);
-            const inc = Math.max(0, parseInt(String(d.incorrectAnswers), 10) || 0);
-            const b = Math.max(0, parseInt(String(d.blankAnswers), 10) || 0);
-            return acc + c + inc + b;
-          }, 0);
-          entries.push({ date: s.date, questions: q });
-        }
-      });
-
-      // 3. Executar recálculo histórico estrito dos recordes (questões e sequência) e ofensiva a partir dos registros ativos restantes
-      const recalculated = recalculateStreakFromEntries(entries);
-
-      // Atualizar estado no React
-      setUserStreak(recalculated);
-
-      // 4. Atualização Atômica no Supabase: persistir os 4 valores recalculados estritamente como números
-      const payloadToSave = {
-        sequencia_dias_atual: Math.max(0, parseInt(String(recalculated.sequencia_dias_atual), 10) || 0),
-        sequencia_dias_recorde: Math.max(0, parseInt(String(recalculated.sequencia_dias_recorde), 10) || 0),
-        questoes_hoje: Math.max(0, parseInt(String(recalculated.questoes_hoje), 10) || 0),
-        questoes_recorde_diario: Math.max(0, parseInt(String(recalculated.questoes_recorde_diario), 10) || 0),
-        ultimo_dia_estudado: recalculated.ultimo_dia_estudado || null,
-      };
-
-      const { data: updateData, error: updateErr } = await supabase
-        .from('profiles')
-        .update(payloadToSave)
-        .eq('id', userId)
-        .select();
-
-      if (updateErr) {
-        console.error("Erro ao persistir métricas recalculadas no Supabase:", updateErr);
-      } else if (!updateData || updateData.length === 0) {
-        const { error: upsertErr } = await supabase.from('profiles').upsert({
-          id: userId,
-          ...payloadToSave,
-        });
-        if (upsertErr) {
-          console.error("Erro ao fazer upsert de métricas recalculadas no Supabase:", upsertErr);
-        }
-      }
-    } catch (err) {
-      console.error("Erro inesperado ao sincronizar métricas de streak após alteração:", err);
-    }
   };
 
   const handleConfirmDeleteLog = async () => {
@@ -750,8 +742,8 @@ const App: React.FC = () => {
       const formattedTime = `${Math.floor(newTimeInMinutes / 60)}h ${newTimeInMinutes % 60}m`;
       const selectedTopic = plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.topicsList?.find(t => t.id === topicId);
 
-      const correctQuestions = Math.max(0, parseInt(String(logData.questionsCorrect), 10) || 0);
-      const incorrectQuestions = Math.max(0, parseInt(String(logData.questionsIncorrect), 10) || 0);
+      const correctQuestions = Math.max(0, Number(logData.questionsCorrect) || 0);
+      const incorrectQuestions = Math.max(0, Number(logData.questionsIncorrect) || 0);
 
       const logPayload = {
         user_id: userId, discipline_id: disciplineId, topic_name: selectedTopic?.name || 'Tópico',
@@ -1325,17 +1317,19 @@ const App: React.FC = () => {
     const userId = session.user.id;
     let loadingToastId = showLoading("Salvando métricas...");
     try {
-      const updatedStreak: UserStudyStreak = {
-        ...userStreak,
-        ...updates,
+      const payloadToSave = {
+        sequencia_dias_atual: Math.max(0, Number(updates.sequencia_dias_atual !== undefined ? updates.sequencia_dias_atual : userStreak.sequencia_dias_atual) || 0),
+        sequencia_dias_recorde: Math.max(0, Number(updates.sequencia_dias_recorde !== undefined ? updates.sequencia_dias_recorde : userStreak.sequencia_dias_recorde) || 0),
+        questoes_recorde_diario: Math.max(0, Number(updates.questoes_recorde_diario !== undefined ? updates.questoes_recorde_diario : userStreak.questoes_recorde_diario) || 0),
+        questoes_hoje: Math.max(0, Number(updates.questoes_hoje !== undefined ? updates.questoes_hoje : userStreak.questoes_hoje) || 0),
       };
 
-      const { data: updateData, error } = await supabase.from('profiles').update({
-        sequencia_dias_atual: updatedStreak.sequencia_dias_atual,
-        sequencia_dias_recorde: updatedStreak.sequencia_dias_recorde,
-        questoes_recorde_diario: updatedStreak.questoes_recorde_diario,
-        questoes_hoje: updatedStreak.questoes_hoje,
-      }).eq('id', userId).select();
+      const updatedStreak: UserStudyStreak = {
+        ...userStreak,
+        ...payloadToSave,
+      };
+
+      const { data: updateData, error } = await supabase.from('profiles').update(payloadToSave).eq('id', userId).select();
 
       if (error) {
         console.error("Erro ao salvar métricas no Supabase:", error);
@@ -1349,10 +1343,7 @@ const App: React.FC = () => {
       if (!updateData || updateData.length === 0) {
         const { error: upsertErr } = await supabase.from('profiles').upsert({
           id: userId,
-          sequencia_dias_atual: updatedStreak.sequencia_dias_atual,
-          sequencia_dias_recorde: updatedStreak.sequencia_dias_recorde,
-          questoes_recorde_diario: updatedStreak.questoes_recorde_diario,
-          questoes_hoje: updatedStreak.questoes_hoje,
+          ...payloadToSave,
         });
         if (upsertErr) {
           console.error("Erro no upsert de métricas de streak no Supabase:", upsertErr);

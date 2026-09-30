@@ -17,24 +17,20 @@ export function normalizeDateToYYYYMMDD(dateStr: string | null | undefined): str
   const trimmed = dateStr.trim();
   if (!trimmed) return null;
 
-  // Se já estiver no formato YYYY-MM-DD
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
     return trimmed;
   }
 
-  // Se vier com timestamp ISO (ex: 2026-09-30T15:00:00Z)
   if (trimmed.includes('T')) {
     const isoDate = trimmed.split('T')[0];
     if (/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return isoDate;
   }
 
-  // Se estiver no formato DD/MM/YYYY
   if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
     const [day, month, year] = trimmed.split('/');
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
-  // Tentar parse via Date
   const parsed = new Date(trimmed);
   if (!isNaN(parsed.getTime())) {
     const year = parsed.getFullYear();
@@ -49,8 +45,8 @@ export function normalizeDateToYYYYMMDD(dateStr: string | null | undefined): str
 export function getDaysDiff(fromDateStr: string, toDateStr: string): number {
   const norm1 = normalizeDateToYYYYMMDD(fromDateStr) || fromDateStr;
   const norm2 = normalizeDateToYYYYMMDD(toDateStr) || toDateStr;
-  const [y1, m1, d1] = norm1.split('-').map(val => parseInt(val, 10));
-  const [y2, m2, d2] = norm2.split('-').map(val => parseInt(val, 10));
+  const [y1, m1, d1] = norm1.split('-').map(val => Number(val) || 0);
+  const [y2, m2, d2] = norm2.split('-').map(val => Number(val) || 0);
   const utc1 = Date.UTC(y1, m1 - 1, d1);
   const utc2 = Date.UTC(y2, m2 - 1, d2);
   return Math.round((utc2 - utc1) / (1000 * 60 * 60 * 24));
@@ -62,38 +58,71 @@ export interface StudyLogEntry {
 }
 
 /**
- * LÓGICA DINÂMICA ÚNICA BASEADA NA TABELA DE LOGS (Fonte da Verdade)
+ * FUNÇÃO DE CÁLCULO BASEADA NOS REGISTROS REAIS (Single Source of Truth)
  *
- * Recalcula com precisão matemática:
- * - questoes_hoje: soma estrita das questões dos registros de HOJE no fuso de Brasília.
- * - questoes_recorde_diario: agrupa todos os registros por data e obtém o MAX das somas diárias.
- * - sequencia_dias_atual: contagem contínua de dias com estudo até hoje.
- * - sequencia_dias_recorde: maior sequência histórica de dias consecutivos com registros.
- *
- * Todas as operações forçam tipos numéricos estritos (Number / parseInt) para evitar concatenação de strings.
+ * 1. Não lê valores antigos de 'sequencia_dias_recorde' ou 'questoes_recorde_diario'.
+ * 2. a) questoes_hoje: SUM(questoes) onde data = HOJE (fuso América/São_Paulo).
+ *    b) questoes_recorde_diario: GROUP BY data_estudo, SUM(questoes) -> Math.max() de todos os dias.
+ *       Se não houver histórico, retorne o total de hoje.
+ *    c) sequencia_dias_atual: Sequência ininterrupta de dias até hoje que possuem ao menos 1 registro.
+ *    d) sequencia_dias_recorde: Maior bloco de dias consecutivos registrados no histórico.
+ *       Se o streak atual for maior, utilize o streak atual.
+ * 3. Sanitização de Tipos: Aplica Number(valor) || 0 em todas as variáveis numéricas.
  */
 export function recalculateStreakFromEntries(
-  entries: StudyLogEntry[],
-  _currentMetrics?: Partial<UserStudyStreak>
+  entries: StudyLogEntry[]
 ): UserStudyStreak {
   const today = getTodayAsYYYYMMDDLocal();
 
-  // 1. Filtrar e normalizar todas as entradas válidas restantes com conversão numérica estrita
-  const normalizedEntries: { date: string; questions: number }[] = [];
+  // 1. Filtrar e sanitizar entradas reais com Number() || 0 obrigatório
+  const sanitizedEntries: { date: string; questions: number }[] = [];
   for (const entry of entries) {
     if (!entry) continue;
     const normDate = normalizeDateToYYYYMMDD(entry.date);
     if (normDate) {
-      const q = Math.max(0, parseInt(String(entry.questions), 10) || 0);
-      normalizedEntries.push({
+      sanitizedEntries.push({
         date: normDate,
-        questions: q,
+        questions: Math.max(0, Number(entry.questions) || 0),
       });
     }
   }
 
-  // 2. Se não houver nenhum registro ativo restante, todos os recordes e métricas são zerados
-  if (normalizedEntries.length === 0) {
+  // a) questoes_hoje: SUM(questoes) onde data = HOJE (fuso América/São_Paulo)
+  let questoesHoje = 0;
+  for (const entry of sanitizedEntries) {
+    if (entry.date === today) {
+      questoesHoje = (Number(questoesHoje) || 0) + (Number(entry.questions) || 0);
+    }
+  }
+  questoesHoje = Math.max(0, Number(questoesHoje) || 0);
+
+  // b) questoes_recorde_diario: GROUP BY data_estudo, SUM(questoes) -> Pegue o Math.max() de todos os dias.
+  // Se não houver histórico, retorne o total de hoje.
+  const dailyQuestionsMap = new Map<string, number>();
+  for (const entry of sanitizedEntries) {
+    const currentDaySum = Number(dailyQuestionsMap.get(entry.date)) || 0;
+    dailyQuestionsMap.set(entry.date, currentDaySum + (Number(entry.questions) || 0));
+  }
+
+  let maxDailyQuestions = 0;
+  for (const daySum of dailyQuestionsMap.values()) {
+    const numSum = Number(daySum) || 0;
+    if (numSum > maxDailyQuestions) {
+      maxDailyQuestions = numSum;
+    }
+  }
+
+  // Se não houver histórico, retorne o total de hoje
+  let questoesRecordeDiario = dailyQuestionsMap.size > 0 ? maxDailyQuestions : questoesHoje;
+  if (questoesHoje > questoesRecordeDiario) {
+    questoesRecordeDiario = questoesHoje;
+  }
+  questoesRecordeDiario = Math.max(0, Number(questoesRecordeDiario) || 0);
+
+  // Coleta de datas distintas com ao menos 1 registro de estudo
+  const distinctDates = Array.from(new Set(sanitizedEntries.map(e => e.date)));
+
+  if (distinctDates.length === 0) {
     return {
       sequencia_dias_atual: 0,
       sequencia_dias_recorde: 0,
@@ -103,85 +132,57 @@ export function recalculateStreakFromEntries(
     };
   }
 
-  // 3. Recálculo das questões de hoje: soma estrita de todos os registros ativos para a data de hoje (Brasília)
-  const questoesHoje = normalizedEntries
-    .filter(e => e.date === today)
-    .reduce((sum, e) => Number(sum) + Number(e.questions), 0);
-
-  // 4. Recálculo de questoes_recorde_diario:
-  // Agrupar todos os registros históricos por data, somando as questões de cada dia, e definir o recorde como o valor MÁXIMO obtido entre todas as somas diárias
-  const dailyQuestionsMap = new Map<string, number>();
-  for (const entry of normalizedEntries) {
-    const prev = dailyQuestionsMap.get(entry.date) || 0;
-    dailyQuestionsMap.set(entry.date, Number(prev) + Number(entry.questions));
-  }
-
-  let questoesRecordeDiario = 0;
-  for (const total of dailyQuestionsMap.values()) {
-    const numTotal = Number(total) || 0;
-    if (numTotal > questoesRecordeDiario) {
-      questoesRecordeDiario = numTotal;
-    }
-  }
-
-  // 5. Coletar datas distintas com estudos registrados
-  const distinctDates = Array.from(new Set(normalizedEntries.map(e => e.date)));
-
-  // 6. Recálculo de sequencia_dias_recorde:
-  // Maior sequência histórica de dias consecutivos com registros de estudo na base de dados
-  const sortedDatesAsc = [...distinctDates].sort((a, b) => a.localeCompare(b));
-  let sequenciaDiasRecorde = 1;
-  let currentStreakRun = 1;
-
-  for (let i = 1; i < sortedDatesAsc.length; i++) {
-    const prevDate = sortedDatesAsc[i - 1];
-    const currDate = sortedDatesAsc[i];
-    const diff = getDaysDiff(prevDate, currDate);
-
-    if (diff === 1) {
-      currentStreakRun++;
-      if (currentStreakRun > sequenciaDiasRecorde) {
-        sequenciaDiasRecorde = currentStreakRun;
-      }
-    } else if (diff === 0) {
-      continue;
-    } else {
-      currentStreakRun = 1;
-    }
-  }
-
-  // 7. Recálculo da sequência atual (sequencia_dias_atual):
-  // Sequência contínua de dias que possuem ao menos 1 registro de estudo até a data de hoje
+  // c) sequencia_dias_atual: Sequência ininterrupta de dias até hoje que possuem ao menos 1 registro
   const sortedDatesDesc = [...distinctDates].sort((a, b) => b.localeCompare(a));
   const latestDate = sortedDatesDesc[0];
   const diffFromToday = getDaysDiff(latestDate, today);
 
   let sequenciaAtual = 0;
-
-  // Se o último dia estudado for hoje (diff === 0) ou ontem (diff === 1), a sequência diária está ativa
   if (diffFromToday === 0 || diffFromToday === 1) {
     sequenciaAtual = 1;
     for (let i = 0; i < sortedDatesDesc.length - 1; i++) {
       if (getDaysDiff(sortedDatesDesc[i + 1], sortedDatesDesc[i]) === 1) {
-        sequenciaAtual++;
+        sequenciaAtual = (Number(sequenciaAtual) || 0) + 1;
       } else {
         break;
       }
     }
   } else {
-    // Se o último dia estudado for anterior a ontem (diff > 1), a sequência diária foi interrompida
     sequenciaAtual = 0;
   }
+  sequenciaAtual = Math.max(0, Number(sequenciaAtual) || 0);
 
-  // Garantir consistência: recordes históricos >= métricas de hoje
-  sequenciaDiasRecorde = Math.max(Number(sequenciaDiasRecorde) || 0, Number(sequenciaAtual) || 0);
-  questoesRecordeDiario = Math.max(Number(questoesRecordeDiario) || 0, Number(questoesHoje) || 0);
+  // d) sequencia_dias_recorde: Maior bloco de dias consecutivos registrados no histórico.
+  // Se o streak atual for maior, utilize o streak atual.
+  const sortedDatesAsc = [...distinctDates].sort((a, b) => a.localeCompare(b));
+  let maxBlock = 1;
+  let currentBlock = 1;
+
+  for (let i = 1; i < sortedDatesAsc.length; i++) {
+    const diff = getDaysDiff(sortedDatesAsc[i - 1], sortedDatesAsc[i]);
+    if (diff === 1) {
+      currentBlock = (Number(currentBlock) || 0) + 1;
+      if (currentBlock > maxBlock) {
+        maxBlock = currentBlock;
+      }
+    } else if (diff === 0) {
+      continue;
+    } else {
+      currentBlock = 1;
+    }
+  }
+
+  let sequenciaDiasRecorde = maxBlock;
+  if (sequenciaAtual > sequenciaDiasRecorde) {
+    sequenciaDiasRecorde = sequenciaAtual;
+  }
+  sequenciaDiasRecorde = Math.max(0, Number(sequenciaDiasRecorde) || 0);
 
   return {
-    sequencia_dias_atual: Math.max(0, parseInt(String(sequenciaAtual), 10) || 0),
-    sequencia_dias_recorde: Math.max(0, parseInt(String(sequenciaDiasRecorde), 10) || 0),
-    questoes_hoje: Math.max(0, parseInt(String(questoesHoje), 10) || 0),
-    questoes_recorde_diario: Math.max(0, parseInt(String(questoesRecordeDiario), 10) || 0),
+    sequencia_dias_atual: sequenciaAtual,
+    sequencia_dias_recorde: sequenciaDiasRecorde,
+    questoes_hoje: questoesHoje,
+    questoes_recorde_diario: questoesRecordeDiario,
     ultimo_dia_estudado: latestDate,
   };
 }

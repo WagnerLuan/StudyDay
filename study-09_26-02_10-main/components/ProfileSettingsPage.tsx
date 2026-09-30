@@ -42,10 +42,10 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
         e.preventDefault();
         setIsUpdatingMetrics(true);
         const updates: Partial<UserStudyStreak> = {
-            sequencia_dias_atual: Math.max(0, parseInt(String(sequenciaAtual), 10) || 0),
-            sequencia_dias_recorde: Math.max(0, parseInt(String(sequenciaRecorde), 10) || 0),
-            questoes_recorde_diario: Math.max(0, parseInt(String(questoesRecorde), 10) || 0),
-            questoes_hoje: Math.max(0, parseInt(String(questoesHoje), 10) || 0),
+            sequencia_dias_atual: Math.max(0, Number(sequenciaAtual) || 0),
+            sequencia_dias_recorde: Math.max(0, Number(sequenciaRecorde) || 0),
+            questoes_recorde_diario: Math.max(0, Number(questoesRecorde) || 0),
+            questoes_hoje: Math.max(0, Number(questoesHoje) || 0),
         };
 
         try {
@@ -249,7 +249,7 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
                                     min="0"
                                     step="1"
                                     value={sequenciaAtual} 
-                                    onChange={(e) => setSequenciaAtual(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                    onChange={(e) => setSequenciaAtual(Math.max(0, Number(e.target.value) || 0))}
                                     placeholder="Ex: 5"
                                     className="w-full bg-gray-900 border border-gray-700 focus:border-amber-500 rounded-xl px-4 py-3 text-white text-lg font-bold focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                                     required
@@ -269,7 +269,7 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
                                     min="0"
                                     step="1"
                                     value={sequenciaRecorde} 
-                                    onChange={(e) => setSequenciaRecorde(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                    onChange={(e) => setSequenciaRecorde(Math.max(0, Number(e.target.value) || 0))}
                                     placeholder="Ex: 15"
                                     className="w-full bg-gray-900 border border-gray-700 focus:border-orange-500 rounded-xl px-4 py-3 text-white text-lg font-bold focus:ring-2 focus:ring-orange-500 outline-none transition-all"
                                     required
@@ -289,7 +289,7 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
                                     min="0"
                                     step="1"
                                     value={questoesRecorde} 
-                                    onChange={(e) => setQuestoesRecorde(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                                    onChange={(e) => setQuestoesRecorde(Math.max(0, Number(e.target.value) || 0))}
                                     placeholder="Ex: 50"
                                     className="w-full bg-gray-900 border border-gray-700 focus:border-cyan-500 rounded-xl px-4 py-3 text-white text-lg font-bold focus:ring-2 focus:ring-cyan-500 outline-none transition-all"
                                     required

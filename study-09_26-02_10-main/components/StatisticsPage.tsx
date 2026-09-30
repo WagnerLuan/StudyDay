@@ -315,9 +315,9 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             }));
 
             const totals = topicsArray.reduce((acc, t) => ({
-                correct: acc.correct + t.correct,
-                incorrect: acc.incorrect + t.incorrect,
-                total: acc.total + t.total,
+                correct: (Number(acc.correct) || 0) + (Number(t.correct) || 0),
+                incorrect: (Number(acc.incorrect) || 0) + (Number(t.incorrect) || 0),
+                total: (Number(acc.total) || 0) + (Number(t.total) || 0),
             }), { correct: 0, incorrect: 0, total: 0 });
 
             return {

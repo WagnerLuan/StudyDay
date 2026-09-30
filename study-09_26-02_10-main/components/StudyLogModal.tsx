@@ -197,11 +197,11 @@ const StudyLogModal: React.FC<StudyLogModalProps> = ({ isOpen, onClose, onSave, 
         }
         const sanitizedFormData: StudyLogFormData = {
             ...formData,
-            questionsCorrect: Math.max(0, parseInt(String(formData.questionsCorrect), 10) || 0),
-            questionsIncorrect: Math.max(0, parseInt(String(formData.questionsIncorrect), 10) || 0),
-            pagesStart: Math.max(0, parseInt(String(formData.pagesStart), 10) || 0),
-            pagesEnd: Math.max(0, parseInt(String(formData.pagesEnd), 10) || 0),
-            reviewDays: Math.max(1, parseInt(String(formData.reviewDays), 10) || 7),
+            questionsCorrect: Math.max(0, Number(formData.questionsCorrect) || 0),
+            questionsIncorrect: Math.max(0, Number(formData.questionsIncorrect) || 0),
+            pagesStart: Math.max(0, Number(formData.pagesStart) || 0),
+            pagesEnd: Math.max(0, Number(formData.pagesEnd) || 0),
+            reviewDays: Math.max(1, Number(formData.reviewDays) || 7),
         };
         onSave({ logData: sanitizedFormData, disciplineId: selectedDisciplineId, topicId: selectedTopicId });
     };
