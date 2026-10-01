@@ -12,9 +12,7 @@ interface RecentActivitiesProps {
 }
 
 const ActivityCard: React.FC<{ activity: AugmentedHistoryLog }> = ({ activity }) => {
-    const correct = Number(activity.correct) || 0;
-    const incorrect = Number(activity.incorrect) || 0;
-    const totalQuestions = correct + incorrect;
+    const totalQuestions = activity.correct + activity.incorrect;
 
     return (
         <div className="bg-slate-700 rounded-lg relative shadow-lg">
@@ -38,7 +36,7 @@ const ActivityCard: React.FC<{ activity: AugmentedHistoryLog }> = ({ activity })
                     </div>
                     <div className="flex items-center gap-3 text-sm text-gray-400">
                         <QuestionMarkCircleIcon className="w-5 h-5" />
-                        <span>Questões: {totalQuestions} ({correct} certas)</span>
+                        <span>Questões: {totalQuestions} ({activity.correct} certas)</span>
                     </div>
                 </div>
             </div>

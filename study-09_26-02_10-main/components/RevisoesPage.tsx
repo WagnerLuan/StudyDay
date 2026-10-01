@@ -382,12 +382,12 @@ const RevisoesPage: React.FC<RevisoesPageProps> = ({ plans, onUpdateRevisionStat
                                                 <span className="text-gray-400 flex items-center gap-1">
                                                     <ClockIcon className="w-4 h-4" />{rev.originalLogInfo.time}
                                                 </span>
-                                                { (((Number(rev.originalLogInfo.correct) || 0) + (Number(rev.originalLogInfo.incorrect) || 0)) > 0) &&
+                                                { (rev.originalLogInfo.correct + rev.originalLogInfo.incorrect > 0) &&
                                                     <div className="flex items-center gap-2">
-                                                        <CheckIcon className="w-4 h-4 text-green-400"/> <span className="text-green-400">{Number(rev.originalLogInfo.correct) || 0}</span>
-                                                        <PerformanceXIcon className="w-4 h-4 text-red-400"/> <span className="text-red-400">{Number(rev.originalLogInfo.incorrect) || 0}</span>
+                                                        <CheckIcon className="w-4 h-4 text-green-400"/> <span className="text-green-400">{rev.originalLogInfo.correct}</span>
+                                                        <PerformanceXIcon className="w-4 h-4 text-red-400"/> <span className="text-red-400">{rev.originalLogInfo.incorrect}</span>
                                                         <span className="font-bold text-white">
-                                                          {(((Number(rev.originalLogInfo.correct) || 0) / ((Number(rev.originalLogInfo.correct) || 0) + (Number(rev.originalLogInfo.incorrect) || 0))) * 100).toFixed(0)}%
+                                                          {((rev.originalLogInfo.correct / (rev.originalLogInfo.correct + rev.originalLogInfo.incorrect)) * 100).toFixed(0)}%
                                                         </span>
                                                     </div>
                                                 }

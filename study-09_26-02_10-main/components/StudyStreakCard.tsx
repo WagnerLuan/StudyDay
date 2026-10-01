@@ -5,16 +5,12 @@ import { getTodayAsYYYYMMDDLocal } from '../src/utils/dateUtils';
 interface StudyStreakCardProps {
   streak: UserStudyStreak;
   isLoading?: boolean;
+  planName?: string | null;
 }
 
-export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoading = false }) => {
+export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoading = false, planName }) => {
   const today = getTodayAsYYYYMMDDLocal();
-  const studiedToday = streak?.ultimo_dia_estudado === today;
-
-  const seqAtual = Math.max(0, Number(streak?.sequencia_dias_atual) || 0);
-  const seqRecorde = Math.max(0, Number(streak?.sequencia_dias_recorde) || 0);
-  const questHoje = Math.max(0, Number(streak?.questoes_hoje) || 0);
-  const questRecorde = Math.max(0, Number(streak?.questoes_recorde_diario) || 0);
+  const studiedToday = streak.ultimo_dia_estudado === today;
 
   if (isLoading) {
     return (
@@ -67,12 +63,12 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-black text-white tracking-tight">Ofensiva de Estudos</h2>
-              <span className="text-xs px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                Recordes & Foco
+              <span className="text-xs px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 truncate max-w-[240px]">
+                {planName ? `Plano: ${planName}` : 'Recordes & Foco'}
               </span>
             </div>
             <p className="text-xs text-gray-400 mt-0.5">
-              Consistência diária é o segredo da sua aprovação.
+              {planName ? `Métricas exclusivas do plano selecionado.` : 'Consistência diária é o segredo da sua aprovação.'}
             </p>
           </div>
         </div>
@@ -104,14 +100,14 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {seqAtual}
+              {streak.sequencia_dias_atual || 0}
             </span>
             <span className="text-xs font-semibold text-gray-400">
-              {seqAtual === 1 ? 'dia' : 'dias'}
+              {(streak.sequencia_dias_atual === 1) ? 'dia' : 'dias'}
             </span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">
-            {seqAtual > 0 
+            {streak.sequencia_dias_atual > 0 
               ? 'Dias seguidos estudando'
               : 'Comece sua sequência hoje!'}
           </p>
@@ -127,10 +123,10 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {seqRecorde}
+              {streak.sequencia_dias_recorde || 0}
             </span>
             <span className="text-xs font-semibold text-gray-400">
-              {seqRecorde === 1 ? 'dia' : 'dias'}
+              {(streak.sequencia_dias_recorde === 1) ? 'dia' : 'dias'}
             </span>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">
@@ -148,7 +144,7 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {questHoje}
+              {streak.questoes_hoje || 0}
             </span>
             <span className="text-xs font-semibold text-gray-400">questões</span>
           </div>
@@ -167,7 +163,7 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-3xl font-black text-white tracking-tight">
-              {questRecorde}
+              {streak.questoes_recorde_diario || 0}
             </span>
             <span className="text-xs font-semibold text-gray-400">num único dia</span>
           </div>

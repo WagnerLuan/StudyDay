@@ -36,7 +36,7 @@ import { showSuccess, showError, showLoading, dismissToast } from './utils/toast
 import { parseTopicsText } from './utils/topicUtils';
 import { parseDate, getTodayAsYYYYMMDDLocal, formatDateToYYYYMMDD } from './utils/dateUtils';
 import { parseTimeToMinutes } from './utils/timeUtils';
-import { DEFAULT_STREAK, recalculateStreakFromEntries, StudyLogEntry } from './utils/streakUtils';
+import { DEFAULT_STREAK, recalculateStreakFromEntries, sincronizarOfensivaUsuario as syncUserStreakFromDB, StudyLogEntry } from './utils/streakUtils';
 
 import EditCycleSessionsModal from '../components/EditCycleSessionsModal';
 import ViewHistoryLogModal from '../components/ViewHistoryLogModal';
@@ -55,33 +55,32 @@ const recalculatePlanStats = (plan: StudyPlan): StudyPlan => {
 
         logs.forEach(log => {
             totalDiscMinutes += parseTimeToMinutes(log.time);
-            totalDiscCorrect = (Number(totalDiscCorrect) || 0) + Math.max(0, Number(log.correct) || 0);
-            totalDiscIncorrect = (Number(totalDiscIncorrect) || 0) + Math.max(0, Number(log.incorrect) || 0);
+            totalDiscCorrect += (log.correct || 0);
+            totalDiscIncorrect += (log.incorrect || 0);
         });
         
         const studiedTopicsCount = (discipline.topicsList || []).filter(t => t.status === 'Concluído').length;
-        const discQuestions = (Number(totalDiscCorrect) || 0) + (Number(totalDiscIncorrect) || 0);
 
         const updatedDiscipline: Discipline = {
             ...discipline,
             totalTopics: (discipline.topicsList || []).length,
             studiedTopics: studiedTopicsCount,
             studyTimeInMinutes: totalDiscMinutes,
-            resolvedQuestions: discQuestions,
+            resolvedQuestions: totalPlanQuestions,
             performance: {
                 correct: totalDiscCorrect,
                 incorrect: totalDiscIncorrect,
             },
         };
 
-        totalPlanMinutes = (Number(totalPlanMinutes) || 0) + totalDiscMinutes;
-        totalPlanCorrect = (Number(totalPlanCorrect) || 0) + totalDiscCorrect;
-        totalPlanQuestions = (Number(totalPlanQuestions) || 0) + discQuestions;
+        totalPlanMinutes += totalDiscMinutes;
+        totalPlanCorrect += totalDiscCorrect;
+        totalPlanQuestions += (totalDiscCorrect + totalDiscIncorrect);
 
         return updatedDiscipline;
     });
 
-    const overallPerformance = totalPlanQuestions > 0 ? ((Number(totalPlanCorrect) || 0) / Number(totalPlanQuestions)) * 100 : 0;
+    const overallPerformance = totalPlanQuestions > 0 ? (totalPlanCorrect / totalPlanQuestions) * 100 : 0;
 
     return {
         ...plan,
@@ -253,101 +252,21 @@ const App: React.FC = () => {
   }, []);
 
   /**
-   * FUNÇÃO DE CÁLCULO BASEADA NOS REGISTROS REAIS (Single Source of Truth)
-   *
-   * 1. Não lê os valores antigos de 'sequencia_dias_recorde' ou 'questoes_recorde_diario'.
-   * 2. Faz uma busca completa nas tabelas de histórico do usuário (user_id):
-   *    a) questoes_hoje: SUM(questoes) onde data = HOJE (fuso América/São_Paulo).
-   *    b) questoes_recorde_diario: GROUP BY data_estudo, SUM(questoes) -> Math.max() de todos os dias.
-   *    c) sequencia_dias_atual: sequência ininterrupta de dias até hoje com ao menos 1 registro.
-   *    d) sequencia_dias_recorde: maior bloco de dias consecutivos registrados no histórico.
-   * 3. Sanitização de Tipos: Aplica Number(valor) || 0 em todas as variáveis numéricas.
-   * 4. Atualização no Supabase: Aplica .update() na tabela profiles enviando os 4 campos recalculados.
+   * Função centralizada de sincronização em tempo real da Ofensiva de Estudos.
+   * Fonte Única da Verdade: busca todos os registros reais de estudo do Supabase (history_logs e simulados),
+   * calcula matematicamente as 4 métricas, persiste na tabela profiles e atualiza o estado React.
    */
-  const syncStreakMetricsFromDatabase = React.useCallback(async (userId: string) => {
+  const sincronizarOfensivaUsuario = React.useCallback(async (userId: string) => {
+    setIsStreakLoading(true);
     try {
-      // 1. Buscar todos os history_logs do usuário no Supabase
-      const { data: logs, error: logsError } = await supabase
-        .from('history_logs')
-        .select('log_date, correct_questions, incorrect_questions')
-        .eq('user_id', userId);
-
-      if (logsError) {
-        console.error("Erro ao carregar history_logs para recálculo do streak:", logsError);
-      }
-
-      // 2. Buscar todos os simulados do usuário no Supabase
-      const { data: sims, error: simsError } = await supabase
-        .from('simulados')
-        .select('date, disciplines')
-        .eq('user_id', userId);
-
-      if (simsError) {
-        console.error("Erro ao carregar simulados para recálculo do streak:", simsError);
-      }
-
-      // Consolidar todas as entradas de estudo ativas aplicando estritamente Number() || 0
-      const entries: StudyLogEntry[] = [];
-
-      (logs || []).forEach((l: any) => {
-        if (l.log_date) {
-          const correct = Math.max(0, Number(l.correct_questions) || 0);
-          const incorrect = Math.max(0, Number(l.incorrect_questions) || 0);
-          const q = (Number(correct) || 0) + (Number(incorrect) || 0);
-          entries.push({ date: l.log_date, questions: q });
-        }
-      });
-
-      (sims || []).forEach((s: any) => {
-        if (s.date) {
-          const q = (s.disciplines || []).reduce((acc: number, d: any) => {
-            const total = Number(d.totalQuestions) || 0;
-            if (total > 0) return (Number(acc) || 0) + total;
-            const c = Math.max(0, Number(d.correctAnswers) || 0);
-            const inc = Math.max(0, Number(d.incorrectAnswers) || 0);
-            const b = Math.max(0, Number(d.blankAnswers) || 0);
-            return (Number(acc) || 0) + c + inc + b;
-          }, 0);
-          entries.push({ date: s.date, questions: Number(q) || 0 });
-        }
-      });
-
-      // 3. Executar recálculo estrito dos recordes e sequências a partir dos registros reais
-      const recalculated = recalculateStreakFromEntries(entries);
-
-      // Atualizar estado no React com os valores recalculados
-      setUserStreak(recalculated);
-
-      // 4. Atualização no Supabase: salvar os 4 campos recalculados como números na tabela profiles
-      const payloadToSave = {
-        sequencia_dias_atual: Math.max(0, Number(recalculated.sequencia_dias_atual) || 0),
-        sequencia_dias_recorde: Math.max(0, Number(recalculated.sequencia_dias_recorde) || 0),
-        questoes_hoje: Math.max(0, Number(recalculated.questoes_hoje) || 0),
-        questoes_recorde_diario: Math.max(0, Number(recalculated.questoes_recorde_diario) || 0),
-        ultimo_dia_estudado: recalculated.ultimo_dia_estudado || null,
-      };
-
-      const { data: updateData, error: updateErr } = await supabase
-        .from('profiles')
-        .update(payloadToSave)
-        .eq('id', userId)
-        .select();
-
-      if (updateErr) {
-        console.error("Erro ao persistir métricas recalculadas no Supabase:", updateErr);
-      } else if (!updateData || updateData.length === 0) {
-        const { error: upsertErr } = await supabase.from('profiles').upsert({
-          id: userId,
-          ...payloadToSave,
-        });
-        if (upsertErr) {
-          console.error("Erro ao fazer upsert de métricas recalculadas no Supabase:", upsertErr);
-        }
-      }
-
-      return recalculated;
+      const synced = await syncUserStreakFromDB(userId);
+      setUserStreak(synced);
+      return synced;
     } catch (err) {
-      console.error("Erro inesperado ao sincronizar métricas de streak após alteração:", err);
+      console.error("Erro ao sincronizar ofensiva do usuário:", err);
+      return DEFAULT_STREAK;
+    } finally {
+      setIsStreakLoading(false);
     }
   }, []);
 
@@ -388,12 +307,11 @@ const App: React.FC = () => {
               const [year, month, day] = log.log_date.split('-');
               const localDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
               localDate.setHours(0, 0, 0, 0);
-              const correct = Math.max(0, Number(log.correct_questions) || 0);
-              const incorrect = Math.max(0, Number(log.incorrect_questions) || 0);
               return {
                 id: log.id, date: localDate.toLocaleDateString('pt-BR'), topic: log.topic_name, time: log.study_time,
-                correct, incorrect, pages: log.pages,
+                correct: log.correct_questions || 0, incorrect: log.incorrect_questions || 0, pages: log.pages,
                 category: log.category, material: log.material, comments: log.comments,
+                rawDate: log.log_date,
               };
             }),
             revisions: disc.revisions.map((rev: any) => ({
@@ -431,13 +349,11 @@ const App: React.FC = () => {
         .eq('user_id', userId);
       setAllFlashcards(cardsData || []);
 
-      // Sincronizar e calcular métricas de streak e recordes do zero com base nos registros reais
+      // Sincronizar Ofensiva de Estudos diretamente a partir dos registros reais do Supabase
       try {
-        await syncStreakMetricsFromDatabase(userId);
+        await sincronizarOfensivaUsuario(userId);
       } catch (err) {
-        console.error("Erro inesperado ao calcular métricas de streak no Supabase:", err);
-      } finally {
-        setIsStreakLoading(false);
+        console.error("Erro ao sincronizar streak no fetchPlans:", err);
       }
 
     } catch (e: any) {
@@ -447,16 +363,17 @@ const App: React.FC = () => {
       setIsDataLoading(false);
       setIsStreakLoading(false);
     }
-  }, []);
+  }, [sincronizarOfensivaUsuario]);
 
   React.useEffect(() => {
     if (isAuthenticated && session?.user?.id) {
       fetchPlans(session.user.id);
+      sincronizarOfensivaUsuario(session.user.id);
     } else if (!isAuthenticated && !isSupabaseLoading) {
       setPlans([]); setAllCycles([]); setStudyBlocks([]); setSimulados([]); setExams([]); setIsDataLoading(false);
       setUserStreak(DEFAULT_STREAK);
     }
-  }, [isAuthenticated, isSupabaseLoading, fetchPlans, session?.user?.id]);
+  }, [isAuthenticated, isSupabaseLoading, fetchPlans, session?.user?.id, sincronizarOfensivaUsuario]);
 
   // Sincronização multi-dispositivo do Streak em tempo real via Supabase
   React.useEffect(() => {
@@ -477,44 +394,64 @@ const App: React.FC = () => {
         (payload: any) => {
           if (payload.new && payload.new.sequencia_dias_atual !== undefined) {
             setUserStreak({
-              sequencia_dias_atual: Math.max(0, parseInt(String(payload.new.sequencia_dias_atual), 10) || 0),
-              sequencia_dias_recorde: Math.max(0, parseInt(String(payload.new.sequencia_dias_recorde), 10) || 0),
-              questoes_hoje: Math.max(0, parseInt(String(payload.new.questoes_hoje), 10) || 0),
-              questoes_recorde_diario: Math.max(0, parseInt(String(payload.new.questoes_recorde_diario), 10) || 0),
-              ultimo_dia_estudado: payload.new.ultimo_dia_estudado ?? null,
+              sequencia_dias_atual: Number(payload.new.sequencia_dias_atual) || 0,
+              sequencia_dias_recorde: Number(payload.new.sequencia_dias_recorde) || 0,
+              questoes_hoje: Number(payload.new.questoes_hoje) || 0,
+              questoes_recorde_diario: Number(payload.new.questoes_recorde_diario) || 0,
+              ultimo_dia_estudado: payload.new.ultimo_dia_estudado || null,
             });
           }
         }
       )
       .subscribe();
 
-    // 2. Ao focar na aba/janela (ex: estudou no celular e voltou para o computador)
+    // 2. Escuta mudanças em tempo real nas tabelas de estudo para recalcular dinamicamente
+    const historyChannel = supabase
+      .channel(`realtime-history-logs-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'history_logs',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          sincronizarOfensivaUsuario(userId);
+        }
+      )
+      .subscribe();
+
+    const simuladosChannel = supabase
+      .channel(`realtime-simulados-${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'simulados',
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          sincronizarOfensivaUsuario(userId);
+        }
+      )
+      .subscribe();
+
+    // 3. Ao focar na aba/janela (ex: alterou registros no Supabase e retornou ao app)
     const handleWindowFocus = () => {
-      supabase
-        .from('profiles')
-        .select('sequencia_dias_atual, sequencia_dias_recorde, questoes_hoje, questoes_recorde_diario, ultimo_dia_estudado')
-        .eq('id', userId)
-        .maybeSingle()
-        .then(({ data, error }) => {
-          if (!error && data && data.sequencia_dias_atual !== undefined) {
-            setUserStreak({
-              sequencia_dias_atual: Math.max(0, parseInt(String(data.sequencia_dias_atual), 10) || 0),
-              sequencia_dias_recorde: Math.max(0, parseInt(String(data.sequencia_dias_recorde), 10) || 0),
-              questoes_hoje: Math.max(0, parseInt(String(data.questoes_hoje), 10) || 0),
-              questoes_recorde_diario: Math.max(0, parseInt(String(data.questoes_recorde_diario), 10) || 0),
-              ultimo_dia_estudado: data.ultimo_dia_estudado ?? null,
-            });
-          }
-        });
+      sincronizarOfensivaUsuario(userId);
     };
 
     window.addEventListener('focus', handleWindowFocus);
 
     return () => {
       supabase.removeChannel(profileChannel);
+      supabase.removeChannel(historyChannel);
+      supabase.removeChannel(simuladosChannel);
       window.removeEventListener('focus', handleWindowFocus);
     };
-  }, [isAuthenticated, session?.user?.id]);
+  }, [isAuthenticated, session?.user?.id, sincronizarOfensivaUsuario]);
 
   const handleSavePlan = async (planUpdates: Partial<StudyPlan> & { id?: string }) => {
     if (!session?.user?.id) return;
@@ -566,6 +503,11 @@ const App: React.FC = () => {
     } catch (e: any) { showError("Erro: " + e.message); }
     finally { dismissToast(loadingToastId); setDisciplineDeleteModalOpen(false); setDisciplineToDelete(null); }
   };
+
+  /**
+   * Alias de compatibilidade para sincronizarOfensivaUsuario
+   */
+  const syncStreakMetricsFromDatabase = sincronizarOfensivaUsuario;
 
   const handleConfirmDeleteLog = async () => {
     if (!logToDelete || !session?.user?.id) return;
@@ -742,13 +684,10 @@ const App: React.FC = () => {
       const formattedTime = `${Math.floor(newTimeInMinutes / 60)}h ${newTimeInMinutes % 60}m`;
       const selectedTopic = plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.topicsList?.find(t => t.id === topicId);
 
-      const correctQuestions = Math.max(0, Number(logData.questionsCorrect) || 0);
-      const incorrectQuestions = Math.max(0, Number(logData.questionsIncorrect) || 0);
-
       const logPayload = {
         user_id: userId, discipline_id: disciplineId, topic_name: selectedTopic?.name || 'Tópico',
         log_date: logData.date.toISOString().split('T')[0], study_time: formattedTime,
-        correct_questions: correctQuestions, incorrect_questions: incorrectQuestions,
+        correct_questions: logData.questionsCorrect, incorrect_questions: logData.questionsIncorrect,
         category: logData.category, material: logData.material, comments: logData.comments,
       };
 
@@ -784,7 +723,7 @@ const App: React.FC = () => {
                 due_date: reviewDate.toISOString().split('T')[0], status: 'Programada', plan_id: planId,
                 discipline_name: plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.name || 'Disciplina',
                 discipline_color: plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.color || '#8884d8',
-                original_log_info: { date: logData.date.toLocaleDateString('pt-BR'), category: logData.category, time: formattedTime, correct: correctQuestions, incorrect: incorrectQuestions },
+                original_log_info: { date: logData.date.toLocaleDateString('pt-BR'), category: logData.category, time: formattedTime, correct: logData.questionsCorrect, incorrect: logData.questionsIncorrect },
               });
 
               if (logData.addToBlockPlanning) {
@@ -1317,19 +1256,17 @@ const App: React.FC = () => {
     const userId = session.user.id;
     let loadingToastId = showLoading("Salvando métricas...");
     try {
-      const payloadToSave = {
-        sequencia_dias_atual: Math.max(0, Number(updates.sequencia_dias_atual !== undefined ? updates.sequencia_dias_atual : userStreak.sequencia_dias_atual) || 0),
-        sequencia_dias_recorde: Math.max(0, Number(updates.sequencia_dias_recorde !== undefined ? updates.sequencia_dias_recorde : userStreak.sequencia_dias_recorde) || 0),
-        questoes_recorde_diario: Math.max(0, Number(updates.questoes_recorde_diario !== undefined ? updates.questoes_recorde_diario : userStreak.questoes_recorde_diario) || 0),
-        questoes_hoje: Math.max(0, Number(updates.questoes_hoje !== undefined ? updates.questoes_hoje : userStreak.questoes_hoje) || 0),
-      };
-
       const updatedStreak: UserStudyStreak = {
         ...userStreak,
-        ...payloadToSave,
+        ...updates,
       };
 
-      const { data: updateData, error } = await supabase.from('profiles').update(payloadToSave).eq('id', userId).select();
+      const { data: updateData, error } = await supabase.from('profiles').update({
+        sequencia_dias_atual: updatedStreak.sequencia_dias_atual,
+        sequencia_dias_recorde: updatedStreak.sequencia_dias_recorde,
+        questoes_recorde_diario: updatedStreak.questoes_recorde_diario,
+        questoes_hoje: updatedStreak.questoes_hoje,
+      }).eq('id', userId).select();
 
       if (error) {
         console.error("Erro ao salvar métricas no Supabase:", error);
@@ -1343,7 +1280,10 @@ const App: React.FC = () => {
       if (!updateData || updateData.length === 0) {
         const { error: upsertErr } = await supabase.from('profiles').upsert({
           id: userId,
-          ...payloadToSave,
+          sequencia_dias_atual: updatedStreak.sequencia_dias_atual,
+          sequencia_dias_recorde: updatedStreak.sequencia_dias_recorde,
+          questoes_recorde_diario: updatedStreak.questoes_recorde_diario,
+          questoes_hoje: updatedStreak.questoes_hoje,
         });
         if (upsertErr) {
           console.error("Erro no upsert de métricas de streak no Supabase:", upsertErr);
@@ -1369,7 +1309,7 @@ const App: React.FC = () => {
     const selectedPlan = plans.find(p => p.id === selectedPlanId);
 
     switch (currentPage) {
-      case 'home': return <Dashboard plans={plans} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} isStreakLoading={isStreakLoading} />;
+      case 'home': return <Dashboard plans={plans} simulados={simulados} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} isStreakLoading={isStreakLoading} />;
       case 'plans': return <PlansPage plans={plans} onCreatePlanRequest={() => { setEditingPlan(null); setPlanModalOpen(true); }} onDeletePlan={id => { setPlanToDelete(id); setPlanDeleteModalOpen(true); }} onViewPlan={id => { setSelectedPlanId(id); setCurrentPage('planDetail'); }} onGeneratePlanFromUrl={handleGeneratePlanFromUrl} />;
       case 'materias': return <DisciplinesPage plans={plans} onViewDiscipline={(pid, did) => { setSelectedDisciplineInfo({ planId: pid, disciplineId: did }); setCurrentPage('disciplineDetail'); }} onEditDiscipline={(pid, did) => { setEditingDiscipline({ planId: pid, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setDisciplineModalOpen(true); }} onDeleteDiscipline={(pid, did) => { setDisciplineToDelete({ planId: pid, disciplineId: did }); setDisciplineDeleteModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'edital': return <EditalPage plans={plans} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalOpen(true); setLogModalContext({ plan: p, discipline: d, topic: t, source: 'edital' }); }} onGenericAddLog={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;

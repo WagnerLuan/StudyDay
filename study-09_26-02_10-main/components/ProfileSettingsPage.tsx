@@ -5,6 +5,7 @@ import { UserIcon, SettingsIcon, CheckIcon, ClockIcon } from '../constants';
 import { showSuccess, showError } from '../src/utils/toast';
 import { supabase } from '../src/lib/supabase';
 import { UserStudyStreak } from '../types';
+import { sincronizarOfensivaUsuario } from '../src/utils/streakUtils';
 
 interface ProfileSettingsPageProps {
     user: any;
@@ -61,6 +62,23 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
             }
         } catch (err: any) {
             showError("Erro ao salvar métricas: " + err.message);
+        } finally {
+            setIsUpdatingMetrics(false);
+        }
+    };
+
+    const handleRecalculateMetrics = async () => {
+        if (!user?.id) return;
+        setIsUpdatingMetrics(true);
+        try {
+            const synced = await sincronizarOfensivaUsuario(user.id);
+            setSequenciaAtual(synced.sequencia_dias_atual);
+            setSequenciaRecorde(synced.sequencia_dias_recorde);
+            setQuestoesRecorde(synced.questoes_recorde_diario);
+            setQuestoesHoje(synced.questoes_hoje);
+            showSuccess("Métricas recalculadas a partir dos registros reais do banco!");
+        } catch (err: any) {
+            showError("Erro ao sincronizar métricas: " + err.message);
         } finally {
             setIsUpdatingMetrics(false);
         }
@@ -249,7 +267,7 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
                                     min="0"
                                     step="1"
                                     value={sequenciaAtual} 
-                                    onChange={(e) => setSequenciaAtual(Math.max(0, Number(e.target.value) || 0))}
+                                    onChange={(e) => setSequenciaAtual(Math.max(0, parseInt(e.target.value, 10) || 0))}
                                     placeholder="Ex: 5"
                                     className="w-full bg-gray-900 border border-gray-700 focus:border-amber-500 rounded-xl px-4 py-3 text-white text-lg font-bold focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                                     required
@@ -269,7 +287,7 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
                                     min="0"
                                     step="1"
                                     value={sequenciaRecorde} 
-                                    onChange={(e) => setSequenciaRecorde(Math.max(0, Number(e.target.value) || 0))}
+                                    onChange={(e) => setSequenciaRecorde(Math.max(0, parseInt(e.target.value, 10) || 0))}
                                     placeholder="Ex: 15"
                                     className="w-full bg-gray-900 border border-gray-700 focus:border-orange-500 rounded-xl px-4 py-3 text-white text-lg font-bold focus:ring-2 focus:ring-orange-500 outline-none transition-all"
                                     required
@@ -289,7 +307,7 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
                                     min="0"
                                     step="1"
                                     value={questoesRecorde} 
-                                    onChange={(e) => setQuestoesRecorde(Math.max(0, Number(e.target.value) || 0))}
+                                    onChange={(e) => setQuestoesRecorde(Math.max(0, parseInt(e.target.value, 10) || 0))}
                                     placeholder="Ex: 50"
                                     className="w-full bg-gray-900 border border-gray-700 focus:border-cyan-500 rounded-xl px-4 py-3 text-white text-lg font-bold focus:ring-2 focus:ring-cyan-500 outline-none transition-all"
                                     required
@@ -300,7 +318,17 @@ const ProfileSettingsPage: React.FC<ProfileSettingsPageProps> = ({ user, onUpdat
                             </div>
                         </div>
 
-                        <div className="flex justify-end pt-2">
+                        <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
+                            <button 
+                                type="button"
+                                onClick={handleRecalculateMetrics}
+                                disabled={isUpdatingMetrics}
+                                className="w-full sm:w-auto px-6 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl transition-all border border-gray-600 flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                                title="Recalcular métricas a partir dos registros de estudo reais do Supabase"
+                            >
+                                <span>🔄</span>
+                                RECALCULAR DO HISTÓRICO
+                            </button>
                             <button 
                                 type="submit"
                                 disabled={isUpdatingMetrics}

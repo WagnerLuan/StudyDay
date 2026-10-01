@@ -347,11 +347,8 @@ const DisciplineDetailPage: React.FC<{
     onBack: () => void;
 }> = ({ discipline, plan, onUpdateTopic, onAddLog, onEditLog, onDeleteLog, onBack }) => {
     
-    const correctPerf = Number(discipline.performance?.correct) || 0;
-    const incorrectPerf = Number(discipline.performance?.incorrect) || 0;
-    const totalPerfQuestions = correctPerf + incorrectPerf;
-    const performancePercentage = totalPerfQuestions > 0 
-        ? (correctPerf / totalPerfQuestions) * 100 
+    const performancePercentage = discipline.performance && (discipline.performance.correct + discipline.performance.incorrect) > 0 
+        ? (discipline.performance.correct / (discipline.performance.correct + discipline.performance.incorrect)) * 100 
         : 0;
     
     const progressPercentage = discipline.topicsList && discipline.topicsList.length > 0 

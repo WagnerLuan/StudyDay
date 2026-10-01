@@ -39,6 +39,7 @@ export interface WeeklyStudy {
 export interface HistoryLog {
     id: string;
     date: string;
+    rawDate?: string;
     topic: string;
     time: string;
     correct: number;

@@ -463,10 +463,10 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
             
             topicArray.forEach(topic => {
                 const topicLogs = allLogs.filter(log => log.topic === topic.name && log.disciplineId === topic.originalDisciplineId);
-                topic.correct = topicLogs.reduce((sum, log) => (Number(sum) || 0) + (Number(log.correct) || 0), 0);
-                topic.incorrect = topicLogs.reduce((sum, log) => (Number(sum) || 0) + (Number(log.incorrect) || 0), 0);
-                topic.total = (Number(topic.correct) || 0) + (Number(topic.incorrect) || 0);
-                topic.accuracy = topic.total > 0 ? Math.round(((Number(topic.correct) || 0) / Number(topic.total)) * 100) : 0;
+                topic.correct = topicLogs.reduce((sum, log) => sum + (log.correct || 0), 0);
+                topic.incorrect = topicLogs.reduce((sum, log) => sum + (log.incorrect || 0), 0);
+                topic.total = topic.correct + topic.incorrect;
+                topic.accuracy = topic.total > 0 ? Math.round((topic.correct / topic.total) * 100) : 0;
                 
                 incidenceCounts[topic.incidence || 'Média']++;
 

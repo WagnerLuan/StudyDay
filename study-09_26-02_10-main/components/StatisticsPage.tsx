@@ -235,11 +235,9 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
 
             if (activeFilters.disciplineName && log.disciplineName !== activeFilters.disciplineName) return false;
             if (activeFilters.topicName && log.topic !== activeFilters.topicName) return false;
-            const logCorrect = Math.max(0, parseInt(String(log.correct), 10) || 0);
-            const logIncorrect = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
-            const totalQuestions = logCorrect + logIncorrect;
+            const totalQuestions = log.correct + log.incorrect;
             if (totalQuestions > 0) {
-                 const performance = (logCorrect / totalQuestions) * 100;
+                 const performance = (log.correct / totalQuestions) * 100;
                  if (activeFilters.minPerformance !== '' && performance < activeFilters.minPerformance) return false;
                  if (activeFilters.maxPerformance !== '' && performance > activeFilters.maxPerformance) return false;
             } else if (activeFilters.minPerformance !== '' || activeFilters.maxPerformance !== '') return false;
@@ -250,10 +248,8 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
         const studyDays = new Set<string>();
 
         filteredLogs.forEach(log => {
-            const c = Math.max(0, parseInt(String(log.correct), 10) || 0);
-            const inc = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
-            totalCorrect += c;
-            totalIncorrect += inc;
+            totalCorrect += log.correct;
+            totalIncorrect += log.incorrect;
             const logStudyTime = parseTimeToMinutes(log.time);
             totalStudyMinutes += logStudyTime;
             studyDays.add(log.date);
@@ -263,8 +259,8 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             }
         });
 
-        const totalQuestions = Number(totalCorrect) + Number(totalIncorrect);
-        const overallPerformance = totalQuestions > 0 ? (Number(totalCorrect) / totalQuestions) * 100 : 0;
+        const totalQuestions = totalCorrect + totalIncorrect;
+        const overallPerformance = totalQuestions > 0 ? (totalCorrect / totalQuestions) * 100 : 0;
         const dailyAverage = studyDays.size > 0 ? totalStudyMinutes / studyDays.size : 0;
         
         let firstDate = new Date(), lastDate = new Date();
@@ -293,11 +289,9 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             if (!acc[discName]) acc[discName] = { name: discName, topics: {}, totalStudyMinutes: 0 };
             const topicName = log.topic;
             if (!acc[discName].topics[topicName]) acc[discName].topics[topicName] = { name: topicName, correct: 0, incorrect: 0, total: 0 };
-            const c = Math.max(0, parseInt(String(log.correct), 10) || 0);
-            const inc = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
-            acc[discName].topics[topicName].correct += c;
-            acc[discName].topics[topicName].incorrect += inc;
-            acc[discName].topics[topicName].total += (c + inc);
+            acc[discName].topics[topicName].correct += log.correct;
+            acc[discName].topics[topicName].incorrect += log.incorrect;
+            acc[discName].topics[topicName].total += log.correct + log.incorrect;
             acc[discName].totalStudyMinutes += parseTimeToMinutes(log.time);
             return acc;
         }, {} as any);
@@ -315,9 +309,9 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             }));
 
             const totals = topicsArray.reduce((acc, t) => ({
-                correct: (Number(acc.correct) || 0) + (Number(t.correct) || 0),
-                incorrect: (Number(acc.incorrect) || 0) + (Number(t.incorrect) || 0),
-                total: (Number(acc.total) || 0) + (Number(t.total) || 0),
+                correct: acc.correct + t.correct,
+                incorrect: acc.incorrect + t.incorrect,
+                total: acc.total + t.total,
             }), { correct: 0, incorrect: 0, total: 0 });
 
             return {

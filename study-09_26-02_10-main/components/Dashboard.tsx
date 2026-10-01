@@ -5,7 +5,7 @@ import PerformancePanel from './PerformanceChart';
 import ProgressBar from './ProgressBar';
 import WeeklyStudyChart from './WeeklyStudyChart';
 import DailyStudyCard from './DailyStudyCard';
-import { StudyPlan, SubjectPerformance, HistoryLog, WeeklyStudy, Exam } from '../types';
+import { StudyPlan, SubjectPerformance, HistoryLog, WeeklyStudy, Exam, Simulado } from '../types';
 import RecentActivities from './RecentActivities';
 import StudyCalendar from './StudyCalendar';
 import DailyStudyDetailModal from './DailyStudyDetailModal';
@@ -15,6 +15,7 @@ import GreetingCard from './GreetingCard';
 import ExamCountdownCard from './ExamCountdownCard';
 import StudyStreakCard from './StudyStreakCard';
 import { UserStudyStreak } from '../types';
+import { recalculateStreakFromEntries, normalizeDateString, StudyLogEntry } from '../src/utils/streakUtils';
 
 type AugmentedHistoryLog = HistoryLog & {
     disciplineName: string;
@@ -34,15 +35,28 @@ interface DashboardProps {
     exams: Exam[];
     userName: string;
     onAddExam: () => void;
-    onEditExam: (exam: Exam) => void;
+    onEditExam: (exam) => void;
     onDeleteExam: (examId: string) => void;
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
     streak?: UserStudyStreak;
     isStreakLoading?: boolean;
+    simulados?: Simulado[];
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam, onEditExam, onDeleteExam, selectedFilterPlanIds, onSelectPlans, streak, isStreakLoading = false }) => {
+const Dashboard: React.FC<DashboardProps> = ({ 
+    plans, 
+    exams, 
+    userName, 
+    onAddExam, 
+    onEditExam, 
+    onDeleteExam, 
+    selectedFilterPlanIds, 
+    onSelectPlans, 
+    streak, 
+    isStreakLoading = false,
+    simulados = []
+}) => {
     const [isDailyDetailModalOpen, setIsDailyDetailModalOpen] = React.useState(false);
     const [selectedDateForModal, setSelectedDateForModal] = React.useState<Date | null>(null);
 
@@ -86,11 +100,11 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
         };
         
         const todayLogs = allLogs.filter(log => parseDate(log.date).getTime() === today.getTime());
-        const dailyStudyTime = todayLogs.reduce((sum, log) => (Number(sum) || 0) + parseTimeToMinutes(log.time), 0);
-        const dailyCorrect = todayLogs.reduce((sum, log) => (Number(sum) || 0) + Math.max(0, Number(log.correct) || 0), 0);
-        const dailyIncorrect = todayLogs.reduce((sum, log) => (Number(sum) || 0) + Math.max(0, Number(log.incorrect) || 0), 0);
-        const dailyQuestions = (Number(dailyCorrect) || 0) + (Number(dailyIncorrect) || 0);
-        const dailyAccuracy = dailyQuestions > 0 ? ((Number(dailyCorrect) || 0) / Number(dailyQuestions)) * 100 : 0;
+        const dailyStudyTime = todayLogs.reduce((sum, log) => sum + parseTimeToMinutes(log.time), 0);
+        const dailyCorrect = todayLogs.reduce((sum, log) => sum + (log.correct || 0), 0);
+        const dailyIncorrect = todayLogs.reduce((sum, log) => sum + (log.incorrect || 0), 0);
+        const dailyQuestions = dailyCorrect + dailyIncorrect;
+        const dailyAccuracy = dailyQuestions > 0 ? (dailyCorrect / dailyQuestions) * 100 : 0;
             
         // Weekly Chart Data
         const weeklyStudyDataMap = new Map<string, { time: number; questions: number }>();
@@ -110,9 +124,7 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
               const dayName = dayNames[parseDate(log.date).getDay()];
               const current = weeklyStudyDataMap.get(dayName)!;
               current.time += parseTimeToMinutes(log.time);
-              const c = Math.max(0, Number(log.correct) || 0);
-              const inc = Math.max(0, Number(log.incorrect) || 0);
-              current.questions = (Number(current.questions) || 0) + (Number(c) || 0) + (Number(inc) || 0);
+              current.questions += log.correct + log.incorrect;
               weeklyStudyDataMap.set(dayName, current);
           });
 
@@ -192,31 +204,112 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
         ? dashboardData.studyLogsByDate.get(formatDateToYYYYMMDD(selectedDateForModal))?.logs || []
         : [];
 
-    const effectiveStreak: UserStudyStreak = React.useMemo(() => {
-        const base = streak || {
-            sequencia_dias_atual: 0,
-            sequencia_dias_recorde: 0,
-            questoes_hoje: 0,
-            questoes_recorde_diario: 0,
-            ultimo_dia_estudado: null,
-        };
-        const todayStr = getTodayAsYYYYMMDDLocal();
-        const hasStudiedToday = base.ultimo_dia_estudado === todayStr;
-        
-        // Conversão obrigatória para número para evitar concatenação de strings
-        const questoesHojeBanco = Math.max(0, Number(base.questoes_hoje) || 0);
-        const recordeBanco = Math.max(0, Number(base.questoes_recorde_diario) || 0);
-        const currentToday = hasStudiedToday ? questoesHojeBanco : 0;
-        const recordQuestions = Math.max(recordeBanco, currentToday);
+    const isAllSelected = selectedFilterPlanIds.includes('all');
 
-        return {
-            ...base,
-            sequencia_dias_atual: Math.max(0, Number(base.sequencia_dias_atual) || 0),
-            sequencia_dias_recorde: Math.max(0, Number(base.sequencia_dias_recorde) || 0),
-            questoes_hoje: currentToday,
-            questoes_recorde_diario: recordQuestions,
-        };
-    }, [streak]);
+    const selectedPlanName = React.useMemo(() => {
+        if (isAllSelected) return null;
+        if (selectedFilterPlanIds.length === 1) {
+            const p = plans.find(plan => plan.id === selectedFilterPlanIds[0]);
+            return p?.name || null;
+        }
+        return `${selectedFilterPlanIds.length} planos`;
+    }, [plans, selectedFilterPlanIds, isAllSelected]);
+
+    // Cálculo dinâmico das métricas da Ofensiva de Estudos considerando exclusivamente o(s) plano(s) selecionado(s)
+    const effectiveStreak: UserStudyStreak = React.useMemo(() => {
+        const plansToAggregate = isAllSelected
+            ? plans
+            : plans.filter(p => selectedFilterPlanIds.includes(p.id));
+
+        const planStudyEntries: StudyLogEntry[] = [];
+
+        // 1. Registros das disciplinas dos planos selecionados
+        plansToAggregate.forEach(plan => {
+            (plan.disciplines || []).forEach(disc => {
+                (disc.historyLogs || []).forEach(log => {
+                    const rawOrDate = (log as any).rawDate || log.date;
+                    const dateStr = normalizeDateString(rawOrDate);
+                    if (dateStr) {
+                        const q = (Number(log.correct) || 0) + (Number(log.incorrect) || 0);
+                        planStudyEntries.push({
+                            date: dateStr,
+                            questions: q,
+                            planId: plan.id,
+                        });
+                    }
+                });
+            });
+        });
+
+        // 2. Simulados vinculados aos planos selecionados
+        (simulados || []).forEach(s => {
+            const belongsToPlan = isAllSelected || (s.plan_id && selectedFilterPlanIds.includes(s.plan_id));
+            if (belongsToPlan) {
+                const dateStr = normalizeDateString(s.date);
+                if (dateStr) {
+                    const q = (s.disciplines || []).reduce((acc: number, d: any) => {
+                        const discQ = d.totalQuestions !== undefined && d.totalQuestions !== null
+                            ? Number(d.totalQuestions)
+                            : (Number(d.correctAnswers) || 0) + (Number(d.incorrectAnswers) || 0) + (Number(d.blankAnswers) || 0);
+                        return acc + (Number(discQ) || 0);
+                    }, 0);
+                    planStudyEntries.push({
+                        date: dateStr,
+                        questions: q,
+                        planId: s.plan_id,
+                    });
+                }
+            }
+        });
+
+        // 3. Recálculo das 4 métricas com base estrita nos registros do plano selecionado
+        const calculated = recalculateStreakFromEntries(planStudyEntries);
+
+        // Se "Todos os Planos" estiver selecionado, preserva os recordes históricos globais
+        if (isAllSelected && streak) {
+            return {
+                sequencia_dias_atual: calculated.sequencia_dias_atual,
+                sequencia_dias_recorde: Math.max(calculated.sequencia_dias_recorde, streak.sequencia_dias_recorde || 0),
+                questoes_hoje: calculated.questoes_hoje,
+                questoes_recorde_diario: Math.max(calculated.questoes_recorde_diario, streak.questoes_recorde_diario || 0),
+                ultimo_dia_estudado: calculated.ultimo_dia_estudado || streak.ultimo_dia_estudado,
+            };
+        }
+
+        // Se um plano específico estiver selecionado:
+        // Identificar se este plano é o detentor dos recordes históricos do usuário
+        if (!isAllSelected && streak && plansToAggregate.length === 1) {
+            const currentPlanId = plansToAggregate[0].id;
+
+            // Encontrar qual plano possui mais registros de estudo no histórico
+            let maxPlanId: string | null = null;
+            let maxPlanEntryCount = -1;
+
+            plans.forEach(p => {
+                let count = 0;
+                (p.disciplines || []).forEach(d => {
+                    count += (d.historyLogs || []).length;
+                });
+                if (count > maxPlanEntryCount) {
+                    maxPlanEntryCount = count;
+                    maxPlanId = p.id;
+                }
+            });
+
+            // Se este plano for o plano principal (ou o único plano cadastrado)
+            if (maxPlanId === currentPlanId || plans.length === 1) {
+                return {
+                    sequencia_dias_atual: calculated.sequencia_dias_atual,
+                    sequencia_dias_recorde: Math.max(calculated.sequencia_dias_recorde, streak.sequencia_dias_recorde || 0),
+                    questoes_hoje: calculated.questoes_hoje,
+                    questoes_recorde_diario: Math.max(calculated.questoes_recorde_diario, streak.questoes_recorde_diario || 0),
+                    ultimo_dia_estudado: calculated.ultimo_dia_estudado || streak.ultimo_dia_estudado,
+                };
+            }
+        }
+
+        return calculated;
+    }, [plans, simulados, selectedFilterPlanIds, isAllSelected, streak]);
 
   return (
     <>
@@ -240,7 +333,7 @@ const Dashboard: React.FC<DashboardProps> = ({ plans, exams, userName, onAddExam
             </div>
 
             {/* Bloco de Métricas Visuais: Ofensiva de Estudos */}
-            <StudyStreakCard streak={effectiveStreak} isLoading={isStreakLoading} />
+            <StudyStreakCard streak={effectiveStreak} isLoading={isStreakLoading} planName={selectedPlanName} />
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
 

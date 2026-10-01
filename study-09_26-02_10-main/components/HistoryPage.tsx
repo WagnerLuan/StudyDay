@@ -95,11 +95,9 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ plans, onAddLogRequest, onEdi
             if (activeFilters.disciplineName && log.disciplineName !== activeFilters.disciplineName) return false;
             if (activeFilters.topicName && log.topic !== activeFilters.topicName) return false;
             
-            const correct = Number(log.correct) || 0;
-            const incorrect = Number(log.incorrect) || 0;
-            const totalQuestions = correct + incorrect;
+            const totalQuestions = log.correct + log.incorrect;
             if (totalQuestions > 0) {
-                 const performance = (correct / totalQuestions) * 100;
+                 const performance = (log.correct / totalQuestions) * 100;
                  if (activeFilters.minPerformance !== '' && performance < activeFilters.minPerformance) return false;
                  if (activeFilters.maxPerformance !== '' && performance > activeFilters.maxPerformance) return false;
             } else {
@@ -203,9 +201,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ plans, onAddLogRequest, onEdi
                                         </thead>
                                         <tbody className="divide-y divide-slate-700">
                                             {logs.map(log => {
-                                                const correct = Number(log.correct) || 0;
-                                                const incorrect = Number(log.incorrect) || 0;
-                                                const totalQuestions = correct + incorrect;
+                                                const totalQuestions = log.correct + log.incorrect;
                                                 return (
                                                     <tr key={log.id}>
                                                         <td className="p-4 align-top">
@@ -220,7 +216,7 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ plans, onAddLogRequest, onEdi
                                                         <td className="p-4 align-middle text-gray-300 whitespace-nowrap">{log.time}</td>
                                                         <td className="p-4 align-middle text-gray-300 whitespace-nowrap">
                                                             {totalQuestions > 0 ? (
-                                                                <span><span className="text-green-400">{correct}</span> / {totalQuestions}</span>
+                                                                <span><span className="text-green-400">{log.correct}</span> / {totalQuestions}</span>
                                                             ) : '-'}
                                                         </td>
                                                         <td className="p-4 align-middle">
