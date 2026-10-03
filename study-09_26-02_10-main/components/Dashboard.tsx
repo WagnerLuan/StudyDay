@@ -5,7 +5,7 @@ import PerformancePanel from './PerformanceChart';
 import ProgressBar from './ProgressBar';
 import WeeklyStudyChart from './WeeklyStudyChart';
 import DailyStudyCard from './DailyStudyCard';
-import { StudyPlan, SubjectPerformance, HistoryLog, WeeklyStudy, Exam, Simulado } from '../types';
+import { StudyPlan, SubjectPerformance, HistoryLog, WeeklyStudy, Exam, Simulado, Revision } from '../types';
 import RecentActivities from './RecentActivities';
 import StudyCalendar from './StudyCalendar';
 import DailyStudyDetailModal from './DailyStudyDetailModal';
@@ -16,6 +16,7 @@ import ExamCountdownCard from './ExamCountdownCard';
 import StudyStreakCard from './StudyStreakCard';
 import { UserStudyStreak } from '../types';
 import { recalculateStreakFromEntries, normalizeDateString, StudyLogEntry } from '../src/utils/streakUtils';
+import { PendingRevisionsHeaderBadge, UpcomingRevisionsCard, PendingRevisionsDrawer } from './PendingRevisionsAlert';
 
 type AugmentedHistoryLog = HistoryLog & {
     disciplineName: string;
@@ -35,13 +36,17 @@ interface DashboardProps {
     exams: Exam[];
     userName: string;
     onAddExam: () => void;
-    onEditExam: (exam) => void;
+    onEditExam: (exam: Exam) => void;
     onDeleteExam: (examId: string) => void;
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
     streak?: UserStudyStreak;
     isStreakLoading?: boolean;
     simulados?: Simulado[];
+    onNavigate?: (page: string) => void;
+    onStartStudyForRevision?: (revision: Revision) => void;
+    onAddLogForRevisionRequest?: (revision: Revision) => void;
+    onCompleteRevision?: (revision: Revision) => void;
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ 
@@ -55,10 +60,56 @@ const Dashboard: React.FC<DashboardProps> = ({
     onSelectPlans, 
     streak, 
     isStreakLoading = false,
-    simulados = []
+    simulados = [],
+    onNavigate,
+    onStartStudyForRevision,
+    onAddLogForRevisionRequest,
+    onCompleteRevision
 }) => {
     const [isDailyDetailModalOpen, setIsDailyDetailModalOpen] = React.useState(false);
     const [selectedDateForModal, setSelectedDateForModal] = React.useState<Date | null>(null);
+    const [isRevisionsDrawerOpen, setIsRevisionsDrawerOpen] = React.useState(false);
+
+    const isAllSelected = selectedFilterPlanIds.includes('all');
+
+    const revisionsData = React.useMemo(() => {
+        const todayStr = getTodayAsYYYYMMDDLocal();
+        const selectedPlans = isAllSelected
+            ? plans
+            : plans.filter(p => selectedFilterPlanIds.includes(p.id));
+
+        const today: Revision[] = [];
+        const overdue: Revision[] = [];
+
+        selectedPlans.forEach(plan => {
+            (plan.disciplines || []).forEach(discipline => {
+                (discipline.revisions || []).forEach(rev => {
+                    if (rev.status === 'Programada') {
+                        if (rev.dueDate === todayStr) {
+                            today.push(rev);
+                        } else if (rev.dueDate < todayStr) {
+                            overdue.push(rev);
+                        }
+                    }
+                });
+            });
+        });
+
+        overdue.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+        today.sort((a, b) => a.disciplineName.localeCompare(b.disciplineName));
+
+        const parts = todayStr.split('-');
+        const ddmm = parts.length === 3 ? `${parts[2]}/${parts[1]}` : '';
+
+        return {
+            todayList: today,
+            overdueList: overdue,
+            todayCount: today.length,
+            overdueCount: overdue.length,
+            totalPending: today.length + overdue.length,
+            todayDDMM: ddmm,
+        };
+    }, [plans, selectedFilterPlanIds, isAllSelected]);
 
     const dashboardData = React.useMemo(() => {
 
@@ -204,8 +255,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         ? dashboardData.studyLogsByDate.get(formatDateToYYYYMMDD(selectedDateForModal))?.logs || []
         : [];
 
-    const isAllSelected = selectedFilterPlanIds.includes('all');
-
     const selectedPlanName = React.useMemo(() => {
         if (isAllSelected) return null;
         if (selectedFilterPlanIds.length === 1) {
@@ -313,15 +362,25 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   return (
     <>
-        <header>
-            <h1 className="text-3xl font-bold text-white">Dashboard</h1>
-            <p className="text-gray-400 mt-1">Bem-vindo(a) de volta! Aqui está seu progresso.</p>
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+                <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+                <p className="text-gray-400 mt-1">Bem-vindo(a) de volta! Aqui está seu progresso.</p>
+            </div>
+
+            {/* 1. Notificação no Topo (Header Badge) */}
+            <PendingRevisionsHeaderBadge 
+                todayCount={revisionsData.todayCount}
+                overdueCount={revisionsData.overdueCount}
+                totalPending={revisionsData.totalPending}
+                onClick={() => setIsRevisionsDrawerOpen(true)}
+            />
         </header>
 
         <PlanFilter plans={plans} selectedPlanIds={selectedFilterPlanIds} onSelectPlans={onSelectPlans} />
 
         <div className="space-y-6">
-            {/* Nova Linha: Saudação e Calendário de Provas */}
+            {/* Linha: Saudação e Calendário de Provas */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <GreetingCard userName={userName} />
                 <ExamCountdownCard 
@@ -346,6 +405,14 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </div>
                 </Card>
             </div>
+
+            {/* 2. Card de Destaque: Próximas Revisões (Abaixo das métricas) */}
+            <UpcomingRevisionsCard 
+                todayCount={revisionsData.todayCount}
+                overdueCount={revisionsData.overdueCount}
+                totalPending={revisionsData.totalPending}
+                onClickDetails={() => setIsRevisionsDrawerOpen(true)}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
@@ -393,6 +460,33 @@ const Dashboard: React.FC<DashboardProps> = ({
             onClose={() => setIsDailyDetailModalOpen(false)}
             selectedDate={selectedDateForModal}
             dailyLogs={dailyLogsForModal}
+        />
+
+        {/* 3 e 4. Painel de Detalhes Lateral: Revisões do dia & Ação rápida */}
+        <PendingRevisionsDrawer
+            isOpen={isRevisionsDrawerOpen}
+            onClose={() => setIsRevisionsDrawerOpen(false)}
+            todayList={revisionsData.todayList}
+            overdueList={revisionsData.overdueList}
+            todayCount={revisionsData.todayCount}
+            overdueCount={revisionsData.overdueCount}
+            totalPending={revisionsData.totalPending}
+            todayDDMM={revisionsData.todayDDMM}
+            onNavigateToRevisoes={() => {
+                setIsRevisionsDrawerOpen(false);
+                if (onNavigate) onNavigate('revisoes');
+            }}
+            onStartStudyForRevision={(rev) => {
+                setIsRevisionsDrawerOpen(false);
+                if (onStartStudyForRevision) onStartStudyForRevision(rev);
+            }}
+            onAddLogForRevisionRequest={(rev) => {
+                setIsRevisionsDrawerOpen(false);
+                if (onAddLogForRevisionRequest) onAddLogForRevisionRequest(rev);
+            }}
+            onCompleteRevision={(rev) => {
+                if (onCompleteRevision) onCompleteRevision(rev);
+            }}
         />
     </>
   );

@@ -529,15 +529,14 @@ const App: React.FC = () => {
         }
       }
 
-      // Desfazer sincronização de revisão concluída automaticamente via Planejamento por Blocos
+      // Desfazer sincronização de revisão concluída automaticamente via Planejamento por Blocos ou Conclusão de Revisão
       let linkedRevision: Revision | undefined = undefined;
       for (const p of plans) {
         for (const d of p.disciplines) {
           const found = d.revisions?.find(r => {
             const info = r.originalLogInfo as any;
             return r.status === 'Concluída' && 
-                   info?.completed_log_id === logToDelete.logId && 
-                   info?.completed_by_block === true;
+                   info?.completed_log_id === logToDelete.logId;
           });
           if (found) {
             linkedRevision = found;
@@ -548,7 +547,7 @@ const App: React.FC = () => {
       }
 
       if (linkedRevision) {
-        const { completed_log_id, completed_by_block, ...cleanLogInfo } = (linkedRevision.originalLogInfo as any) || {};
+        const { completed_log_id, completed_by_block, completed_by_revision, completed_by, ...cleanLogInfo } = (linkedRevision.originalLogInfo as any) || {};
         await supabase.from('revisions').update({
           status: 'Programada',
           updated_at: new Date().toISOString(),
@@ -685,7 +684,7 @@ const App: React.FC = () => {
       const selectedTopic = plans.find(p => p.id === planId)?.disciplines.find(d => d.id === disciplineId)?.topicsList?.find(t => t.id === topicId);
 
       const logPayload = {
-        user_id: userId, discipline_id: disciplineId, topic_name: selectedTopic?.name || 'Tópico',
+        user_id: userId, discipline_id: disciplineId, topic_name: selectedTopic?.name || logModalContext?.topic?.name || 'Tópico',
         log_date: logData.date.toISOString().split('T')[0], study_time: formattedTime,
         correct_questions: logData.questionsCorrect, incorrect_questions: logData.questionsIncorrect,
         category: logData.category, material: logData.material, comments: logData.comments,
@@ -754,7 +753,10 @@ const App: React.FC = () => {
         const updatedLogInfo = {
           ...(targetRevision?.originalLogInfo || {}),
           completed_log_id: logId,
-          completed_by_block: !!logModalContext.blockId
+          completed_by_revision: true,
+          completed_by_block: !!logModalContext.blockId,
+          completed_by: logModalContext.blockId ? 'Concluída via Bloco de Estudo' : 'Concluída via Revisão',
+          completed_date: logData.date.toISOString().split('T')[0]
         };
 
         await supabase.from('revisions').update({
@@ -1309,7 +1311,59 @@ const App: React.FC = () => {
     const selectedPlan = plans.find(p => p.id === selectedPlanId);
 
     switch (currentPage) {
-      case 'home': return <Dashboard plans={plans} simulados={simulados} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} isStreakLoading={isStreakLoading} />;
+      case 'home': return <Dashboard 
+        plans={plans} 
+        simulados={simulados} 
+        exams={exams} 
+        userName={userName} 
+        onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} 
+        onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} 
+        onDeleteExam={handleDeleteExam} 
+        selectedFilterPlanIds={selectedFilterPlanIds} 
+        onSelectPlans={setSelectedFilterPlanIds} 
+        streak={userStreak} 
+        isStreakLoading={isStreakLoading}
+        onNavigate={setCurrentPage}
+        onStartStudyForRevision={r => { 
+          const plan = plans.find(p => p.id === r.planId);
+          const discipline = plan?.disciplines.find(d => d.id === r.disciplineId);
+          const topic = discipline?.topicsList?.find(t => t.name === r.topicName);
+          startTimer({ planId: r.planId, disciplineId: r.disciplineId, topicId: topic?.id || null, revisionId: r.id }, 'cronometro', 3600); 
+          setTimerModalOpen(true); 
+        }} 
+        onAddLogForRevisionRequest={r => { 
+          const plan = plans.find(p => p.id === r.planId)!;
+          const discipline = plan.disciplines.find(d => d.id === r.disciplineId)!;
+          const topic = discipline.topicsList?.find(t => 
+            t.name === r.topicName || 
+            t.name.trim().toLowerCase() === r.topicName?.trim().toLowerCase()
+          );
+          setLogModalContext({ 
+            plan, 
+            discipline, 
+            topic: topic || (r.topicName ? { id: '', name: r.topicName, status: 'Pendente' } : null), 
+            revisionId: r.id,
+            initialCategory: 'Revisão'
+          }); 
+          setLogModalOpen(true); 
+        }} 
+        onCompleteRevision={r => {
+          const plan = plans.find(p => p.id === r.planId)!;
+          const discipline = plan.disciplines.find(d => d.id === r.disciplineId)!;
+          const topic = discipline.topicsList?.find(t => 
+            t.name === r.topicName || 
+            t.name.trim().toLowerCase() === r.topicName?.trim().toLowerCase()
+          );
+          setLogModalContext({ 
+            plan, 
+            discipline, 
+            topic: topic || (r.topicName ? { id: '', name: r.topicName, status: 'Pendente' } : null), 
+            revisionId: r.id,
+            initialCategory: 'Revisão'
+          }); 
+          setLogModalOpen(true); 
+        }}
+      />;
       case 'plans': return <PlansPage plans={plans} onCreatePlanRequest={() => { setEditingPlan(null); setPlanModalOpen(true); }} onDeletePlan={id => { setPlanToDelete(id); setPlanDeleteModalOpen(true); }} onViewPlan={id => { setSelectedPlanId(id); setCurrentPage('planDetail'); }} onGeneratePlanFromUrl={handleGeneratePlanFromUrl} />;
       case 'materias': return <DisciplinesPage plans={plans} onViewDiscipline={(pid, did) => { setSelectedDisciplineInfo({ planId: pid, disciplineId: did }); setCurrentPage('disciplineDetail'); }} onEditDiscipline={(pid, did) => { setEditingDiscipline({ planId: pid, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setDisciplineModalOpen(true); }} onDeleteDiscipline={(pid, did) => { setDisciplineToDelete({ planId: pid, disciplineId: did }); setDisciplineDeleteModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'edital': return <EditalPage plans={plans} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalOpen(true); setLogModalContext({ plan: p, discipline: d, topic: t, source: 'edital' }); }} onGenericAddLog={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
@@ -1332,8 +1386,17 @@ const App: React.FC = () => {
         onAddLogForRevisionRequest={r => { 
           const plan = plans.find(p => p.id === r.planId)!;
           const discipline = plan.disciplines.find(d => d.id === r.disciplineId)!;
-          const topic = discipline.topicsList?.find(t => t.name === r.topicName);
-          setLogModalContext({ plan, discipline, topic: topic || null, revisionId: r.id }); 
+          const topic = discipline.topicsList?.find(t => 
+            t.name === r.topicName || 
+            t.name.trim().toLowerCase() === r.topicName?.trim().toLowerCase()
+          );
+          setLogModalContext({ 
+            plan, 
+            discipline, 
+            topic: topic || (r.topicName ? { id: '', name: r.topicName, status: 'Pendente' } : null), 
+            revisionId: r.id,
+            initialCategory: 'Revisão'
+          }); 
           setLogModalOpen(true); 
         }} 
         onDeleteRevision={id => supabase.from('revisions').delete().eq('id', id).then(() => fetchPlans(session!.user.id))}

@@ -149,7 +149,7 @@ const StudyLogModal: React.FC<StudyLogModalProps> = ({ isOpen, onClose, onSave, 
                     category: initialCategory || 'Teoria',
                 } as StudyLogFormData);
                 setSelectedDisciplineId(initialDiscipline?.id || (availableDisciplines.length > 0 ? availableDisciplines[0].id : null));
-                setSelectedTopicId(initialTopic?.id || null);
+                setSelectedTopicId(initialTopic?.id || initialTopic?.name || null);
             }
         }
     }, [isOpen, logToEdit, initialStudyTime, initialCategory, initialDiscipline, initialTopic, plan, availableDisciplines, completionDate]);
@@ -168,8 +168,8 @@ const StudyLogModal: React.FC<StudyLogModalProps> = ({ isOpen, onClose, onSave, 
         if (type === 'checkbox') {
              setFormData(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
         } else if (['questionsCorrect', 'questionsIncorrect', 'pagesStart', 'pagesEnd', 'reviewDays'].includes(name)) {
-            const numValue = Number(value);
-            setFormData(prev => ({ ...prev, [name]: isNaN(numValue) ? 0 : numValue }));
+            const numValue = parseInt(value, 10);
+            setFormData(prev => ({ ...prev, [name]: isNaN(numValue) ? 0 : Math.max(0, numValue) }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
         }
@@ -195,7 +195,15 @@ const StudyLogModal: React.FC<StudyLogModalProps> = ({ isOpen, onClose, onSave, 
             alert('Por favor, selecione pelo menos uma categoria.');
             return;
         }
-        onSave({ logData: formData, disciplineId: selectedDisciplineId, topicId: selectedTopicId });
+        const sanitizedFormData: StudyLogFormData = {
+            ...formData,
+            questionsCorrect: Math.max(0, Number(formData.questionsCorrect) || 0),
+            questionsIncorrect: Math.max(0, Number(formData.questionsIncorrect) || 0),
+            pagesStart: Math.max(0, Number(formData.pagesStart) || 0),
+            pagesEnd: Math.max(0, Number(formData.pagesEnd) || 0),
+            reviewDays: Math.max(1, Number(formData.reviewDays) || 7),
+        };
+        onSave({ logData: sanitizedFormData, disciplineId: selectedDisciplineId, topicId: selectedTopicId });
     };
 
     if (!isOpen) return null;
@@ -240,8 +248,11 @@ const StudyLogModal: React.FC<StudyLogModalProps> = ({ isOpen, onClose, onSave, 
                         </Select>
                          <Select label="Tópico" value={selectedTopicId || ''} onChange={e => setSelectedTopicId(e.target.value)} disabled={!selectedDisciplineId}>
                              <option value="">Selecione o Tópico...</option>
-                            {availableTopics.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </Select>
+                             {availableTopics.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                             {initialTopic && !availableTopics.some(t => t.id === initialTopic.id || t.name === initialTopic.name) && (
+                                 <option value={initialTopic.id || initialTopic.name}>{initialTopic.name}</option>
+                             )}
+                         </Select>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
