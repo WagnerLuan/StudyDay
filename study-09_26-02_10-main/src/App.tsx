@@ -37,6 +37,7 @@ import { parseTopicsText } from './utils/topicUtils';
 import { parseDate, getTodayAsYYYYMMDDLocal, formatDateToYYYYMMDD } from './utils/dateUtils';
 import { parseTimeToMinutes } from './utils/timeUtils';
 import { DEFAULT_STREAK, recalculateStreakFromEntries, sincronizarOfensivaUsuario as syncUserStreakFromDB, StudyLogEntry } from './utils/streakUtils';
+import { ParsedDisciplineImport } from './utils/excelPlanUtils';
 
 import EditCycleSessionsModal from '../components/EditCycleSessionsModal';
 import ViewHistoryLogModal from '../components/ViewHistoryLogModal';
@@ -650,6 +651,77 @@ const App: React.FC = () => {
       fetchPlans(userId);
     } catch (e: any) { showError("Erro: " + e.message); }
     finally { dismissToast(loadingToastId); setDisciplineModalOpen(false); }
+  };
+
+  const handleImportDisciplines = async (
+    planId: string, 
+    importedDisciplines: ParsedDisciplineImport[], 
+    mode: 'append' | 'replace'
+  ) => {
+    if (!session?.user?.id) return;
+    const userId = session.user.id;
+    let loadingToastId = showLoading(
+      mode === 'replace' ? "Substituindo disciplinas do plano..." : "Importando disciplinas..."
+    );
+
+    try {
+      // Se for modo 'replace', exclui as disciplinas e tópicos atuais deste plano
+      if (mode === 'replace') {
+        const targetPlan = plans.find(p => p.id === planId);
+        const existingDiscIds = targetPlan?.disciplines.map(d => d.id) || [];
+        
+        if (existingDiscIds.length > 0) {
+          await supabase.from('topics').delete().in('discipline_id', existingDiscIds).eq('user_id', userId);
+          await supabase.from('disciplines').delete().in('id', existingDiscIds).eq('user_id', userId);
+        }
+      }
+
+      let totalTopicsImported = 0;
+
+      for (const disc of importedDisciplines) {
+        const { data: newDisc, error: discErr } = await supabase.from('disciplines').insert({
+          user_id: userId,
+          plan_id: planId,
+          name: disc.name,
+          color: disc.color,
+          topics_text: disc.topicsText,
+          weight: disc.weight || 1,
+        }).select().single();
+
+        if (discErr) throw discErr;
+
+        const parsedTopics = parseTopicsText(disc.topicsText || '');
+        if (parsedTopics.length > 0 && newDisc?.id) {
+          totalTopicsImported += parsedTopics.length;
+          const { error: topErr } = await supabase.from('topics').insert(
+            parsedTopics.map((t, idx) => {
+              const meta = disc.topicsWithMetadata?.[idx];
+              return {
+                user_id: userId,
+                discipline_id: newDisc.id,
+                name: t.name,
+                status: t.status || 'Pendente',
+                incidence: meta?.incidence || 'Média',
+              };
+            })
+          );
+          if (topErr) throw topErr;
+        }
+      }
+
+      await supabase.from('study_plans').update({
+        updated_at: new Date().toISOString()
+      }).eq('id', planId).eq('user_id', userId);
+
+      await syncStreakMetricsFromDatabase(userId);
+      showSuccess(`${importedDisciplines.length} disciplinas e ${totalTopicsImported} tópicos importados com sucesso!`);
+      await fetchPlans(userId);
+    } catch (e: any) {
+      showError("Erro na importação: " + (e.message || 'Falha ao salvar dados'));
+      throw e;
+    } finally {
+      dismissToast(loadingToastId);
+    }
   };
 
   const handleUpdateTopic = async (planId: string, disciplineId: string, topicId: string, updates: Partial<Topic>, silent = false) => {
@@ -1408,7 +1480,7 @@ const App: React.FC = () => {
       case 'estatisticas': return <StatisticsPage plans={plans} onAddLogRequest={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'simulados': return <SimuladosPage plans={plans} simulados={simulados} onSaveSimulado={handleSaveSimulado} onDeleteSimulado={handleDeleteSimulado} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'configuracoes': return <ProfileSettingsPage user={session?.user} onUpdateProfile={handleUpdateProfile} userStreak={userStreak} onUpdateStreak={handleUpdateStreakMetrics} />;
-      case 'planDetail': return selectedPlan ? <PlanDetailPage plan={selectedPlan} onEdit={() => { setEditingPlan(selectedPlan); setPlanModalOpen(true); }} onDeletePlan={() => { setPlanToDelete(selectedPlan.id); setPlanDeleteModalOpen(true); }} onAddDiscipline={() => { setPlanToAddDisciplineToId(selectedPlan.id); setDisciplineModalOpen(true); }} onDeleteDiscipline={(pid, did) => { setDisciplineToDelete({ planId: pid, disciplineId: did }); setDisciplineDeleteModalOpen(true); }} onViewDiscipline={(pid, did) => { setSelectedDisciplineInfo({ planId: pid, disciplineId: did }); setCurrentPage('disciplineDetail'); }} onEditDiscipline={(pid, did) => { setEditingDiscipline({ planId: pid, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setDisciplineModalOpen(true); }} /> : null;
+      case 'planDetail': return selectedPlan ? <PlanDetailPage plan={selectedPlan} onEdit={() => { setEditingPlan(selectedPlan); setPlanModalOpen(true); }} onDeletePlan={() => { setPlanToDelete(selectedPlan.id); setPlanDeleteModalOpen(true); }} onAddDiscipline={() => { setPlanToAddDisciplineToId(selectedPlan.id); setDisciplineModalOpen(true); }} onDeleteDiscipline={(pid, did) => { setDisciplineToDelete({ planId: pid, disciplineId: did }); setDisciplineDeleteModalOpen(true); }} onViewDiscipline={(pid, did) => { setSelectedDisciplineInfo({ planId: pid, disciplineId: did }); setCurrentPage('disciplineDetail'); }} onEditDiscipline={(pid, did) => { setEditingDiscipline({ planId: pid, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setDisciplineModalOpen(true); }} onImportDisciplines={handleImportDisciplines} /> : null;
       case 'disciplineDetail': 
         const dInfo = selectedDisciplineInfo;
         const dPlan = plans.find(p => p.id === dInfo?.planId);
