@@ -42,6 +42,7 @@ const PerformancePanel: React.FC<PerformancePanelProps> = ({ data }) => {
           <tbody>
             {data.map((subject, index) => {
               const totalQuestions = subject.correctAnswers + subject.incorrectAnswers;
+              const isNotStarted = totalQuestions === 0;
               const accuracy = totalQuestions > 0 ? (subject.correctAnswers / totalQuestions) * 100 : 0;
               const accuracyBarColor = getAccuracyBarColor(accuracy);
 
@@ -50,18 +51,32 @@ const PerformancePanel: React.FC<PerformancePanelProps> = ({ data }) => {
                   <td className="py-4 pr-3 text-gray-200 font-medium">{subject.name}</td>
                   <td className="py-4 px-3 text-gray-400 text-center whitespace-nowrap">{formatTime(subject.studyTime)}</td>
                   <td className="py-4 px-3 text-center text-gray-400">
-                    <span className={subject.correctAnswers > 0 ? 'text-green-400' : 'text-gray-400'}>{subject.correctAnswers}</span>
-                    <span className="text-gray-500"> / </span>
-                    <span className={subject.incorrectAnswers > 0 ? 'text-red-400' : 'text-gray-400'}>{subject.incorrectAnswers}</span>
+                    {isNotStarted ? (
+                      <span className="text-xs text-gray-400 font-mono">0 / 0 questões</span>
+                    ) : (
+                      <>
+                        <span className={subject.correctAnswers > 0 ? 'text-green-400' : 'text-gray-400'}>{subject.correctAnswers}</span>
+                        <span className="text-gray-500"> / </span>
+                        <span className={subject.incorrectAnswers > 0 ? 'text-red-400' : 'text-gray-400'}>{subject.incorrectAnswers}</span>
+                      </>
+                    )}
                   </td>
                   <td className="py-4 pl-3">
                     <div className="flex items-center justify-center gap-3">
-                      <div className="w-20 h-2.5 bg-slate-700 rounded-full">
-                         {accuracy > 0 && (
-                             <div className={`${accuracyBarColor} h-2.5 rounded-full`} style={{ width: `${accuracy}%` }}></div>
-                         )}
-                      </div>
-                      <span className={`font-semibold w-12 text-right ${getAccuracyTextColor(accuracy)}`}>{accuracy.toFixed(1)}%</span>
+                      {isNotStarted ? (
+                        <span className="text-xs px-2.5 py-0.5 rounded text-gray-300 bg-gray-700 border border-gray-600 font-mono font-medium">
+                          Não iniciada
+                        </span>
+                      ) : (
+                        <>
+                          <div className="w-20 h-2.5 bg-slate-700 rounded-full">
+                             {accuracy > 0 && (
+                                 <div className={`${accuracyBarColor} h-2.5 rounded-full`} style={{ width: `${accuracy}%` }}></div>
+                             )}
+                          </div>
+                          <span className={`font-semibold w-12 text-right ${getAccuracyTextColor(accuracy)}`}>{accuracy.toFixed(1)}%</span>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

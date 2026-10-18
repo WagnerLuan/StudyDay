@@ -79,6 +79,9 @@ type AggregatedDiscipline = {
 
 const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: string): AggregatedDiscipline[] => {
     const sortedDisciplines = [...disciplines].sort((a, b) => {
+        const aHasQuestions = (a.totalQuestions || 0) > 0;
+        const bHasQuestions = (b.totalQuestions || 0) > 0;
+
         let compareValue = 0;
         switch (order) {
             case 'mostCorrect':
@@ -91,12 +94,22 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
                 compareValue = b.totalQuestions - a.totalQuestions;
                 break;
             case 'bestPerformance':
+                // Disciplinas estudadas da maior % para a menor; não iniciadas ao final
+                if (aHasQuestions && !bHasQuestions) return -1;
+                if (!aHasQuestions && bHasQuestions) return 1;
+                if (!aHasQuestions && !bHasQuestions) return a.name.localeCompare(b.name);
                 compareValue = b.accuracy - a.accuracy;
                 break;
             case 'worstPerformance':
+                // Disciplinas estudadas da menor % para a maior; não iniciadas ao final
+                if (aHasQuestions && !bHasQuestions) return -1;
+                if (!aHasQuestions && bHasQuestions) return 1;
+                if (!aHasQuestions && !bHasQuestions) return a.name.localeCompare(b.name);
                 compareValue = a.accuracy - b.accuracy;
                 break;
             default:
+                if (aHasQuestions && !bHasQuestions) return -1;
+                if (!aHasQuestions && bHasQuestions) return 1;
                 compareValue = b.accuracy - a.accuracy;
         }
         return compareValue;
@@ -104,6 +117,9 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
 
     return sortedDisciplines.map(disc => {
         const sortedTopics = [...disc.topics].sort((a, b) => {
+            const aHas = (a.total || 0) > 0;
+            const bHas = (b.total || 0) > 0;
+
             let topicCompareValue = 0;
             switch (order) {
                 case 'mostCorrect':
@@ -116,12 +132,20 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
                     topicCompareValue = b.total - a.total;
                     break;
                 case 'bestPerformance':
+                    if (aHas && !bHas) return -1;
+                    if (!aHas && bHas) return 1;
+                    if (!aHas && !bHas) return a.name.localeCompare(b.name);
                     topicCompareValue = b.accuracy - a.accuracy;
                     break;
                 case 'worstPerformance':
+                    if (aHas && !bHas) return -1;
+                    if (!aHas && bHas) return 1;
+                    if (!aHas && !bHas) return a.name.localeCompare(b.name);
                     topicCompareValue = a.accuracy - b.accuracy;
                     break;
                 default:
+                    if (aHas && !bHas) return -1;
+                    if (!aHas && bHas) return 1;
                     topicCompareValue = b.accuracy - a.accuracy;
             }
             return topicCompareValue;
@@ -159,37 +183,63 @@ const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ dat
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-700/50">
-                        {data.map(disc => (
-                            <React.Fragment key={disc.name}>
-                                <tr className="bg-gray-800/40 hover:bg-gray-700/50 cursor-pointer transition-colors" onClick={() => toggleExpand(disc.name)}>
-                                    <td className="p-4 align-middle font-bold text-white flex items-center gap-3">
-                                        <ChevronDownIcon className={`w-4 h-4 text-gray-500 transition-transform ${expanded.has(disc.name) ? 'rotate-180' : ''}`} />
-                                        <span className="text-sm uppercase tracking-tight">{disc.name}</span>
-                                    </td>
-                                    <td className="p-4 text-center text-gray-300 font-mono text-[17px]">{disc.totalCorrect}</td>
-                                    <td className="p-4 text-center text-gray-300 font-mono text-[17px]">{disc.totalIncorrect}</td>
-                                    <td className="p-4 text-center text-blue-400 font-mono text-[17px]">{disc.totalQuestions}</td>
-                                    <td className="p-4 text-center">
-                                        <span className={`inline-block min-w-[60px] px-2 py-1 rounded text-[14px] font-black font-mono ${getPerfColor(disc.accuracy)}`}>
-                                            {disc.accuracy.toFixed(1)}%
-                                        </span>
-                                    </td>
-                                </tr>
-                                {expanded.has(disc.name) && disc.topics.map((topic: AggregatedTopic) => (
-                                    <tr key={topic.id} className="bg-gray-900/30 text-xs border-l-4 border-emerald-500/20">
-                                        <td className="py-3 px-4 pl-12 text-gray-400 italic align-middle">{topic.name}</td>
-                                        <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">{topic.correct}</td>
-                                        <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">{topic.incorrect}</td>
-                                        <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">{topic.total}</td>
-                                        <td className="py-3 px-4 text-center">
-                                             <span className={`inline-block min-w-[50px] px-1.5 py-0.5 rounded text-[13px] font-bold font-mono ${getPerfColor(topic.accuracy)}`}>
-                                                {topic.accuracy.toFixed(1)}%
-                                            </span>
+                        {data.map(disc => {
+                            const isNotStarted = (disc.totalQuestions || 0) === 0;
+                            return (
+                                <React.Fragment key={disc.name}>
+                                    <tr className="bg-gray-800/40 hover:bg-gray-700/50 cursor-pointer transition-colors" onClick={() => toggleExpand(disc.name)}>
+                                        <td className="p-4 align-middle font-bold text-white flex items-center gap-3">
+                                            <ChevronDownIcon className={`w-4 h-4 text-gray-500 transition-transform ${expanded.has(disc.name) ? 'rotate-180' : ''}`} />
+                                            <span className="text-sm uppercase tracking-tight">{disc.name}</span>
+                                        </td>
+                                        <td className="p-4 text-center text-gray-300 font-mono text-[17px]">{disc.totalCorrect}</td>
+                                        <td className="p-4 text-center text-gray-300 font-mono text-[17px]">{disc.totalIncorrect}</td>
+                                        <td className="p-4 text-center text-blue-400 font-mono text-[17px]">
+                                            {isNotStarted ? (
+                                                <span className="text-gray-400 text-sm font-normal">0 / 0 questões</span>
+                                            ) : (
+                                                `${disc.totalQuestions} questões`
+                                            )}
+                                        </td>
+                                        <td className="p-4 text-center">
+                                            {isNotStarted ? (
+                                                <span className="inline-block px-2.5 py-1 rounded text-[12px] font-bold font-mono bg-gray-700 text-gray-300 border border-gray-600">
+                                                    Não iniciada
+                                                </span>
+                                            ) : (
+                                                <span className={`inline-block min-w-[60px] px-2 py-1 rounded text-[14px] font-black font-mono ${getPerfColor(disc.accuracy)}`}>
+                                                    {disc.accuracy.toFixed(1)}%
+                                                </span>
+                                            )}
                                         </td>
                                     </tr>
-                                ))}
-                            </React.Fragment>
-                        ))}
+                                    {expanded.has(disc.name) && disc.topics.map((topic: AggregatedTopic) => {
+                                        const topicNotStarted = (topic.total || 0) === 0;
+                                        return (
+                                            <tr key={topic.id} className="bg-gray-900/30 text-xs border-l-4 border-emerald-500/20">
+                                                <td className="py-3 px-4 pl-12 text-gray-400 italic align-middle">{topic.name}</td>
+                                                <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">{topic.correct}</td>
+                                                <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">{topic.incorrect}</td>
+                                                <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">
+                                                    {topicNotStarted ? '0 / 0 questões' : `${topic.total} questões`}
+                                                </td>
+                                                <td className="py-3 px-4 text-center">
+                                                    {topicNotStarted ? (
+                                                        <span className="inline-block px-2 py-0.5 rounded text-[11px] font-bold font-mono bg-gray-700 text-gray-300 border border-gray-600">
+                                                            Não iniciada
+                                                        </span>
+                                                    ) : (
+                                                        <span className={`inline-block min-w-[50px] px-1.5 py-0.5 rounded text-[13px] font-bold font-mono ${getPerfColor(topic.accuracy)}`}>
+                                                            {topic.accuracy.toFixed(1)}%
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </React.Fragment>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -288,19 +338,47 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
         });
         const syllabusProgress = totalTopics > 0 ? (completedTopics / totalTopics) * 100 : 0;
 
-        const byTopic = filteredLogs.reduce((acc, log) => {
+        const byTopic: Record<string, any> = {};
+
+        plansToAggregate.forEach(plan => {
+            plan.disciplines.forEach(disc => {
+                if (activeFilters.disciplineName && disc.name !== activeFilters.disciplineName) return;
+                if (!byTopic[disc.name]) {
+                    byTopic[disc.name] = { 
+                        name: disc.name, 
+                        color: disc.color || '#8884d8', 
+                        topics: {}, 
+                        totalStudyMinutes: 0 
+                    };
+                }
+                if (disc.topicsList) {
+                    disc.topicsList.forEach(t => {
+                        if (activeFilters.topicName && t.name !== activeFilters.topicName) return;
+                        if (!byTopic[disc.name].topics[t.name]) {
+                            byTopic[disc.name].topics[t.name] = { 
+                                name: t.name, 
+                                correct: 0, 
+                                incorrect: 0, 
+                                total: 0 
+                            };
+                        }
+                    });
+                }
+            });
+        });
+
+        filteredLogs.forEach(log => {
             const discName = log.disciplineName;
-            if (!acc[discName]) acc[discName] = { name: discName, topics: {}, totalStudyMinutes: 0 };
+            if (!byTopic[discName]) byTopic[discName] = { name: discName, color: log.disciplineColor || '#8884d8', topics: {}, totalStudyMinutes: 0 };
             const topicName = log.topic;
-            if (!acc[discName].topics[topicName]) acc[discName].topics[topicName] = { name: topicName, correct: 0, incorrect: 0, total: 0 };
+            if (!byTopic[discName].topics[topicName]) byTopic[discName].topics[topicName] = { name: topicName, correct: 0, incorrect: 0, total: 0 };
             const c = Math.max(0, parseInt(String(log.correct), 10) || 0);
             const inc = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
-            acc[discName].topics[topicName].correct += c;
-            acc[discName].topics[topicName].incorrect += inc;
-            acc[discName].topics[topicName].total += (c + inc);
-            acc[discName].totalStudyMinutes += parseTimeToMinutes(log.time);
-            return acc;
-        }, {} as any);
+            byTopic[discName].topics[topicName].correct += c;
+            byTopic[discName].topics[topicName].incorrect += inc;
+            byTopic[discName].topics[topicName].total += (c + inc);
+            byTopic[discName].totalStudyMinutes += parseTimeToMinutes(log.time);
+        });
 
         const rawTopicPerformanceData: AggregatedDiscipline[] = Object.values(byTopic).map((disc: any) => {
             const topicsArray: AggregatedTopic[] = Object.values(disc.topics).map((topic: any) => ({
