@@ -9,6 +9,7 @@ import GeneratedPlanDashboard from './GeneratedPlanDashboard';
 import DeleteConfirmationModal from './DeleteConfirmationModal';
 import { PlusCircleIcon } from '../constants';
 import PlanFilter from './PlanFilter';
+import PlanejamentoDisciplinePerformance from './PlanejamentoDisciplinePerformance';
 
 interface PlanejamentoPageProps {
     plans: StudyPlan[];
@@ -53,11 +54,13 @@ const PlanejamentoPage: React.FC<PlanejamentoPageProps> = ({
     const [isDeleteCycleModalOpen, setIsDeleteCycleModalOpen] = React.useState(false);
     const [planIdToDelete, setPlanIdToDelete] = React.useState<string | null>(null);
 
-    const allDisciplines = React.useMemo(() => {
-        const plansToUse = selectedFilterPlanIds.includes('all')
+    const plansToUse = React.useMemo(() => {
+        return selectedFilterPlanIds.includes('all')
             ? plans
             : plans.filter(p => selectedFilterPlanIds.includes(p.id));
+    }, [plans, selectedFilterPlanIds]);
 
+    const allDisciplines = React.useMemo(() => {
         return plansToUse.flatMap(plan =>
             plan.disciplines.map(discipline => ({
                 ...discipline,
@@ -65,7 +68,7 @@ const PlanejamentoPage: React.FC<PlanejamentoPageProps> = ({
                 planName: plan.name,
             }))
         );
-    }, [plans, selectedFilterPlanIds]);
+    }, [plansToUse]);
 
     const filteredCycles = React.useMemo(() => {
         if (selectedFilterPlanIds.includes('all')) return generatedCycles;
@@ -238,7 +241,7 @@ const PlanejamentoPage: React.FC<PlanejamentoPageProps> = ({
                 </header>
                 <PlanFilter plans={plans} selectedPlanIds={selectedFilterPlanIds} onSelectPlans={onSelectPlans} />
                 
-                <div className="space-y-12">
+                <div className="space-y-8">
                     {filteredCycles.map(cycle => {
                         const plan = plans.find(p => p.id === cycle.planId);
                         return (
@@ -254,6 +257,12 @@ const PlanejamentoPage: React.FC<PlanejamentoPageProps> = ({
                             />
                         );
                     })}
+
+                    {/* Widget de Desempenho por Disciplina */}
+                    <PlanejamentoDisciplinePerformance
+                        plans={plansToUse}
+                        onNavigate={onNavigate}
+                    />
                 </div>
 
                 <DeleteConfirmationModal
@@ -272,28 +281,37 @@ const PlanejamentoPage: React.FC<PlanejamentoPageProps> = ({
                 <h1 className="text-3xl font-bold text-white">Planejamento</h1>
             </header>
             <PlanFilter plans={plans} selectedPlanIds={selectedFilterPlanIds} onSelectPlans={onSelectPlans} />
-            <div className="flex flex-col items-center justify-center min-h-[70vh] bg-gray-800 rounded-xl shadow-2xl p-8 w-full max-w-3xl mx-auto my-8 text-white">
-                <h2 className="text-3xl font-bold mb-4">Nenhum Ciclo de Estudos Encontrado</h2>
-                <p className="text-gray-400 mb-8 text-center">
-                    {selectedFilterPlanIds.includes('all') 
-                        ? 'Você ainda não criou nenhum ciclo de estudos. Selecione um plano para começar.'
-                        : `Você ainda não criou um ciclo de estudos para os planos selecionados.`}
-                </p>
-                {!selectedFilterPlanIds.includes('all') && selectedFilterPlanIds.length === 1 && (
-                    <button
-                        onClick={() => setIsCreateCycleModalOpen(true)}
-                        className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-6 rounded-lg flex items-center gap-3 transition-colors shadow-lg hover:shadow-emerald-500/50"
-                    >
-                        <PlusCircleIcon className="w-7 h-7" />
-                        <span>Criar Novo Ciclo de Estudos</span>
-                    </button>
-                )}
+            <div className="space-y-8 my-8">
+                <div className="flex flex-col items-center justify-center min-h-[50vh] bg-gray-800 rounded-xl shadow-2xl p-8 w-full max-w-3xl mx-auto text-white">
+                    <h2 className="text-3xl font-bold mb-4">Nenhum Ciclo de Estudos Encontrado</h2>
+                    <p className="text-gray-400 mb-8 text-center">
+                        {selectedFilterPlanIds.includes('all') 
+                            ? 'Você ainda não criou nenhum ciclo de estudos. Selecione um plano para começar.'
+                            : `Você ainda não criou um ciclo de estudos para os planos selecionados.`}
+                    </p>
+                    {!selectedFilterPlanIds.includes('all') && selectedFilterPlanIds.length === 1 && (
+                        <button
+                            onClick={() => setIsCreateCycleModalOpen(true)}
+                            className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-6 rounded-lg flex items-center gap-3 transition-colors shadow-lg hover:shadow-emerald-500/50"
+                        >
+                            <PlusCircleIcon className="w-7 h-7" />
+                            <span>Criar Novo Ciclo de Estudos</span>
+                        </button>
+                    )}
 
-                <CreateCycleModal
-                    isOpen={isCreateCycleModalOpen}
-                    onClose={() => setIsCreateCycleModalOpen(false)}
-                    onSelectMode={handleSelectMode}
-                />
+                    <CreateCycleModal
+                        isOpen={isCreateCycleModalOpen}
+                        onClose={() => setIsCreateCycleModalOpen(false)}
+                        onSelectMode={handleSelectMode}
+                    />
+                </div>
+
+                {allDisciplines.length > 0 && (
+                    <PlanejamentoDisciplinePerformance
+                        plans={plansToUse}
+                        onNavigate={onNavigate}
+                    />
+                )}
             </div>
         </>
     );
