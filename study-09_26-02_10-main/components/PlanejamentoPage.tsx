@@ -22,6 +22,7 @@ interface PlanejamentoPageProps {
     onRemoveCycle: (planId: string) => Promise<void>;
     onStartNextCycle: (planId: string) => Promise<void>;
     onEditCycle: (planId: string) => void;
+    onViewEdital?: (planId: string, disciplineId: string, disciplineName: string) => void;
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
 }
@@ -40,6 +41,7 @@ const PlanejamentoPage: React.FC<PlanejamentoPageProps> = ({
     onRemoveCycle,
     onStartNextCycle,
     onEditCycle,
+    onViewEdital,
     selectedFilterPlanIds,
     onSelectPlans,
 }) => {
@@ -254,6 +256,7 @@ const PlanejamentoPage: React.FC<PlanejamentoPageProps> = ({
                                 onEdit={onEditCycle}
                                 onRemove={handleRemoveCycleRequest}
                                 onStartNextCycle={onStartNextCycle}
+                                onViewEdital={onViewEdital}
                             />
                         );
                     })}

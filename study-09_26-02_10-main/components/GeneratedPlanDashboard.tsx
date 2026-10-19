@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 import { GeneratedCycle, StudySession } from '../types';
-import { RestartIcon, EditIcon, TrashIcon, ClockIcon, PlayIcon, PlusIcon } from '../constants';
+import { RestartIcon, EditIcon, TrashIcon, ClockIcon, PlayIcon, PlusIcon, FileTextIcon } from '../constants';
 
 
 interface AlgorithmSuggestionProps {
@@ -87,7 +87,8 @@ const StudySequenceList: React.FC<{
     title: string; 
     onRegisterManualStudy: (planId: string, disciplineId: string) => void;
     onStartStudy: (session: StudySession) => void;
-}> = ({ sessions, title, onRegisterManualStudy, onStartStudy }) => (
+    onViewEdital?: (planId: string, disciplineId: string, disciplineName: string) => void;
+}> = ({ sessions, title, onRegisterManualStudy, onStartStudy, onViewEdital }) => (
     <div className="bg-gray-800 p-4 rounded-xl shadow-lg h-[600px] flex flex-col">
         <h3 className="font-bold text-lg text-white mb-4 px-2">{title}</h3>
         <div className="flex-grow overflow-y-auto pr-2 space-y-2 custom-scrollbar">
@@ -130,6 +131,16 @@ const StudySequenceList: React.FC<{
                                     <PlusIcon className="w-3 h-3"/>
                                     <span>Registrar Manual</span>
                                 </button>
+                                {onViewEdital && (
+                                    <button 
+                                        onClick={() => onViewEdital(session.planId, session.disciplineId, session.disciplineName)}
+                                        className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 transition-colors"
+                                        title="Ver Edital desta disciplina"
+                                    >
+                                        <FileTextIcon className="w-3 h-3"/>
+                                        <span>Ver Edital</span>
+                                    </button>
+                                )}
                             </div>
                             {session.suggestionCriteria && (
                                 <span className="text-[9px] text-purple-400 font-bold flex items-center gap-1">
@@ -190,9 +201,10 @@ interface GeneratedPlanDashboardProps {
     onEdit: (planId: string) => void;
     onRemove: (planId: string) => void;
     onStartNextCycle: (planId: string) => void;
+    onViewEdital?: (planId: string, disciplineId: string, disciplineName: string) => void;
 }
 
-const GeneratedPlanDashboard: React.FC<GeneratedPlanDashboardProps> = ({ cycle, planName, onRegisterManualStudy, onStartStudy, onEdit, onRemove, onStartNextCycle }) => {
+const GeneratedPlanDashboard: React.FC<GeneratedPlanDashboardProps> = ({ cycle, planName, onRegisterManualStudy, onStartStudy, onEdit, onRemove, onStartNextCycle, onViewEdital }) => {
     const [activeTab, setActiveTab] = React.useState<'sequence' | 'completed'>('sequence');
 
     const progressPercent = cycle.weeklyProgress.total > 0 ? (cycle.weeklyProgress.completed / cycle.weeklyProgress.total) * 100 : 0;
@@ -279,9 +291,9 @@ const GeneratedPlanDashboard: React.FC<GeneratedPlanDashboardProps> = ({ cycle, 
                             </nav>
                         </div>
                         {activeTab === 'sequence' ? (
-                            <StudySequenceList sessions={cycle.studySequence} title="Próximos Estudos" onRegisterManualStudy={onRegisterManualStudy} onStartStudy={onStartStudy} />
+                            <StudySequenceList sessions={cycle.studySequence} title="Próximos Estudos" onRegisterManualStudy={onRegisterManualStudy} onStartStudy={onStartStudy} onViewEdital={onViewEdital} />
                         ) : (
-                            <StudySequenceList sessions={cycle.completedStudies} title="Concluídos Recentemente" onRegisterManualStudy={onRegisterManualStudy} onStartStudy={onStartStudy} />
+                            <StudySequenceList sessions={cycle.completedStudies} title="Concluídos Recentemente" onRegisterManualStudy={onRegisterManualStudy} onStartStudy={onStartStudy} onViewEdital={onViewEdital} />
                         )}
                     </div>
                 </div>

@@ -178,6 +178,7 @@ const App: React.FC = () => {
   const [exams, setExams] = React.useState<Exam[]>([]);
   const [selectedPlanId, setSelectedPlanId] = React.useState<string | null>(null);
   const [selectedDisciplineInfo, setSelectedDisciplineInfo] = React.useState<{planId: string, disciplineId: string} | null>(null);
+  const [targetDisciplineForEdital, setTargetDisciplineForEdital] = React.useState<string | null>(null);
   
   const { session, isLoading: isSupabaseLoading } = useSupabase();
   const isAuthenticated = !!session;
@@ -1265,6 +1266,17 @@ const App: React.FC = () => {
     finally { dismissToast(loadingToastId); }
   };
 
+  const handleViewEditalFromPlanejamento = (planId: string, disciplineId: string, disciplineName: string) => {
+    if (planId) {
+      setSelectedFilterPlanIds([planId]);
+    }
+    setTargetDisciplineForEdital(disciplineId || disciplineName);
+    try {
+      window.history.pushState(null, '', '?disciplinaId=' + encodeURIComponent(disciplineId || disciplineName));
+    } catch (e) {}
+    setCurrentPage('edital');
+  };
+
   const handleLogout = async () => {
     let loadingToastId = showLoading("Saindo...");
     try {
@@ -1438,8 +1450,8 @@ const App: React.FC = () => {
       />;
       case 'plans': return <PlansPage plans={plans} onCreatePlanRequest={() => { setEditingPlan(null); setPlanModalOpen(true); }} onDeletePlan={id => { setPlanToDelete(id); setPlanDeleteModalOpen(true); }} onViewPlan={id => { setSelectedPlanId(id); setCurrentPage('planDetail'); }} onGeneratePlanFromUrl={handleGeneratePlanFromUrl} />;
       case 'materias': return <DisciplinesPage plans={plans} onViewDiscipline={(pid, did) => { setSelectedDisciplineInfo({ planId: pid, disciplineId: did }); setCurrentPage('disciplineDetail'); }} onEditDiscipline={(pid, did) => { setEditingDiscipline({ planId: pid, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setDisciplineModalOpen(true); }} onDeleteDiscipline={(pid, did) => { setDisciplineToDelete({ planId: pid, disciplineId: did }); setDisciplineDeleteModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
-      case 'edital': return <EditalPage plans={plans} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalOpen(true); setLogModalContext({ plan: p, discipline: d, topic: t, source: 'edital' }); }} onGenericAddLog={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
-      case 'planejamento': return <PlanejamentoPage plans={plans} onRegisterManualStudy={(pid, did) => { setLogModalContext({ plan: plans.find(p => p.id === pid)!, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setLogModalOpen(true); }} onStartStudy={s => { startTimer({ planId: s.planId, disciplineId: s.disciplineId, topicId: null }, 'cronometro', s.totalTime * 60); setTimerModalOpen(true); }} onNavigate={setCurrentPage} generatedCycles={allCycles} onGenerateCycle={handleGenerateCycle} onSaveManualCycle={handleSaveManualCycle} onRemoveCycle={async (id) => { await supabase.from('generated_cycles').delete().eq('plan_id', id); await fetchPlans(session!.user.id); }} onStartNextCycle={handleStartNextCycle} onEditCycle={id => { setPlanIdToEditCycle(id); setIsEditCycleSessionsModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
+      case 'edital': return <EditalPage plans={plans} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalOpen(true); setLogModalContext({ plan: p, discipline: d, topic: t, source: 'edital' }); }} onGenericAddLog={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} targetDisciplineId={targetDisciplineForEdital} />;
+      case 'planejamento': return <PlanejamentoPage plans={plans} onRegisterManualStudy={(pid, did) => { setLogModalContext({ plan: plans.find(p => p.id === pid)!, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setLogModalOpen(true); }} onStartStudy={s => { startTimer({ planId: s.planId, disciplineId: s.disciplineId, topicId: null }, 'cronometro', s.totalTime * 60); setTimerModalOpen(true); }} onNavigate={setCurrentPage} generatedCycles={allCycles} onGenerateCycle={handleGenerateCycle} onSaveManualCycle={handleSaveManualCycle} onRemoveCycle={async (id) => { await supabase.from('generated_cycles').delete().eq('plan_id', id); await fetchPlans(session!.user.id); }} onStartNextCycle={handleStartNextCycle} onEditCycle={id => { setPlanIdToEditCycle(id); setIsEditCycleSessionsModalOpen(true); }} onViewEdital={handleViewEditalFromPlanejamento} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'blocos': return <BlockPlanningPage plans={plans} blocks={studyBlocks} onSaveBlock={handleSaveStudyBlock} onDeleteBlock={handleDeleteStudyBlock} onCompleteBlock={handleCompleteStudyBlock} onClearWeek={handleClearWeekBlocks} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'caderno': return <NotesPage plans={plans} userId={session!.user.id} />;
       case 'flashcards': return <FlashcardsPage userId={session!.user.id} onStartReview={(deck) => { setActiveReviewDeck(deck); setIsFlashcardReviewOpen(true); }} />;
@@ -1493,7 +1505,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex min-h-screen bg-gray-900 font-sans">
-      {isAuthenticated && <Sidebar isOpen={isSidebarOpen} setIsOpen={setSidebarOpen} currentPage={currentPage} setCurrentPage={setCurrentPage} onOpenTimer={() => setTimerModalOpen(true)} onLogout={handleLogout} />}
+      {isAuthenticated && <Sidebar isOpen={isSidebarOpen} setIsOpen={setSidebarOpen} currentPage={currentPage} setCurrentPage={(page) => { if (page !== "edital") { setTargetDisciplineForEdital(null); try { window.history.pushState(null, "", window.location.pathname); } catch (e) {} } else if (currentPage !== "edital") { setTargetDisciplineForEdital(null); } setCurrentPage(page); }} onOpenTimer={() => setTimerModalOpen(true)} onLogout={handleLogout} />}
       <main className={`flex-1 ${isAuthenticated ? 'lg:ml-20' : ''}`}>
         {isAuthenticated && (
           <div className="lg:hidden flex items-center p-4 bg-gray-900 shadow-md sticky top-0 z-20">

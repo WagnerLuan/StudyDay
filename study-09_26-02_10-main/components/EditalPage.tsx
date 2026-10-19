@@ -206,13 +206,43 @@ const DisciplineRow: React.FC<{
     plans: StudyPlan[];
     sortOrder: 'asc' | 'desc' | 'original';
     onToggleSort: () => void;
-}> = ({ discipline, onUpdateTopic, onAddLog, plans, sortOrder, onToggleSort }) => {
+    targetDisciplineId?: string | null;
+}> = ({ discipline, onUpdateTopic, onAddLog, plans, sortOrder, onToggleSort, targetDisciplineId }) => {
+    const rowRef = React.useRef<HTMLDivElement>(null);
+    const isTarget = React.useMemo(() => {
+        if (!targetDisciplineId || typeof targetDisciplineId !== 'string') return false;
+        const normTarget = targetDisciplineId.toLowerCase().trim();
+        if (!normTarget) return false;
+        const matchesOriginalId = (discipline.originalDisciplines || []).some(
+            od => od?.disciplineId && od.disciplineId.toLowerCase() === normTarget
+        );
+        const matchesName = discipline.name && discipline.name.toLowerCase().trim() === normTarget;
+        return matchesOriginalId || matchesName;
+    }, [targetDisciplineId, discipline]);
     const [isExpanded, setIsExpanded] = React.useState(false);
 
+    React.useEffect(() => {
+        if (isTarget) {
+            setIsExpanded(true);
+            const timer = setTimeout(() => {
+                if (rowRef.current && typeof rowRef.current.scrollIntoView === 'function') {
+                    rowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 300);
+            return () => clearTimeout(timer);
+        }
+    }, [isTarget]);
+
+    const primaryDiscId = discipline.originalDisciplines[0]?.disciplineId || discipline.name.replace(/\s+/g, '-').toLowerCase();
     return (
-        <div className={`bg-gray-800 rounded-lg overflow-visible border-2 transition-all ${
-            discipline.revisionStatus === 'late' ? 'border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.05)]' : 'border-transparent'
-        }`}>
+        <div 
+            ref={rowRef} 
+            id={`disciplina-${primaryDiscId}`}
+            className={`bg-gray-800 rounded-lg overflow-visible border-2 transition-all ${
+                isTarget ? 'ring-2 ring-emerald-400 border-emerald-500/50 ' : ''
+            }${
+                discipline.revisionStatus === 'late' ? 'border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.05)]' : 'border-transparent'
+            }`}>
             <div
                 className="flex items-center p-4 cursor-pointer hover:bg-gray-700/50 transition-colors"
                 onClick={() => setIsExpanded(!isExpanded)}
@@ -265,9 +295,42 @@ interface EditalPageProps {
     onGenericAddLog: () => void;
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
+    targetDisciplineId?: string | null;
 }
 
-const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog, onGenericAddLog, selectedFilterPlanIds, onSelectPlans }) => {
+const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog, onGenericAddLog, selectedFilterPlanIds, onSelectPlans, targetDisciplineId }) => {
+    const [activeTargetDiscipline, setActiveTargetDiscipline] = React.useState<string | null>(targetDisciplineId || null);
+
+    React.useEffect(() => {
+        if (targetDisciplineId) {
+            setActiveTargetDiscipline(targetDisciplineId);
+            return;
+        }
+        if (typeof window !== 'undefined' && window.location) {
+            try {
+                const search = window.location.search;
+                if (search) {
+                    const urlParams = new URLSearchParams(search);
+                    const queryDisc = urlParams.get('disciplinaId') || urlParams.get('disciplina');
+                    if (queryDisc && queryDisc.trim()) {
+                        setActiveTargetDiscipline(queryDisc.trim());
+                        return;
+                    }
+                }
+                const hash = window.location.hash;
+                if (hash && hash.startsWith('#disciplina-')) {
+                    const hashDisc = hash.replace('#disciplina-', '').trim();
+                    if (hashDisc) {
+                        setActiveTargetDiscipline(hashDisc);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn('Erro ao processar parâmetros de busca do edital:', err);
+            }
+        }
+        setActiveTargetDiscipline(null);
+    }, [targetDisciplineId]);
     const [incidenceFilter, setIncidenceFilter] = React.useState<TopicIncidence | 'Todas'>('Todas');
     const [weightFilter, setWeightFilter] = React.useState<number | 'Todas'>('Todas');
     const [disciplineSortOrder, setDisciplineSortOrder] = React.useState<'name' | 'weightDesc'>('name');
@@ -520,7 +583,7 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
                 totalIncorrect,
                 totalQuestions,
                 accuracy: totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0,
-                originalDisciplines: [],
+                originalDisciplines: aggDisc.originalDisciplines || [],
                 revisionStatus: discRevisionStatus
             };
         }).filter(d => {
@@ -676,6 +739,7 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
                             plans={plans} 
                             sortOrder={sortOrder}
                             onToggleSort={handleToggleSort}
+                            targetDisciplineId={activeTargetDiscipline}
                         />
                     ))}
                     {aggregatedData.disciplines.length === 0 && (
