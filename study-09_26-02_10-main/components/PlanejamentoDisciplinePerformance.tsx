@@ -105,30 +105,20 @@ const PlanejamentoDisciplinePerformance: React.FC<PlanejamentoDisciplinePerforma
     const renderBadge = (item: DisciplinePerfItem) => {
         if (item.total === 0) {
             return (
-                <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-semibold bg-gray-700/80 text-gray-300 border border-gray-600">
+                <span className="inline-flex items-center justify-center w-24 sm:w-28 py-1 rounded-md text-xs font-semibold bg-gray-700/80 text-gray-300 border border-gray-600 whitespace-nowrap text-center">
                     Não iniciada
                 </span>
             );
         }
 
-        if (item.accuracy >= 80) {
-            return (
-                <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-mono">
-                    {item.accuracy.toFixed(1)}%
-                </span>
-            );
-        }
-
-        if (item.accuracy >= 60) {
-            return (
-                <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30 font-mono">
-                    {item.accuracy.toFixed(1)}%
-                </span>
-            );
-        }
+        const colorClasses = item.accuracy >= 80
+            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+            : item.accuracy >= 60
+            ? 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+            : 'bg-rose-500/15 text-rose-400 border-rose-500/30';
 
         return (
-            <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-md text-xs font-bold bg-rose-500/15 text-rose-400 border border-rose-500/30 font-mono">
+            <span className={'inline-flex items-center justify-center w-20 sm:w-24 py-1 rounded-md text-xs font-bold font-mono border whitespace-nowrap text-center ' + colorClasses}>
                 {item.accuracy.toFixed(1)}%
             </span>
         );
@@ -181,23 +171,25 @@ const PlanejamentoDisciplinePerformance: React.FC<PlanejamentoDisciplinePerforma
                 {sortedDisciplines.map(disc => (
                     <div
                         key={disc.name}
-                        className="py-3 sm:py-3.5 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-gray-700/30 rounded-xl transition-colors"
+                        className="py-3.5 px-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-8 hover:bg-gray-700/30 rounded-xl transition-colors"
                     >
                         {/* Nome da Disciplina com Bullet colorido */}
-                        <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0 flex-1 mr-2">
                             <span
                                 className="w-2.5 h-2.5 rounded-full flex-shrink-0 shadow-sm"
                                 style={{ backgroundColor: disc.color }}
                             />
-                            <span className="font-semibold text-white text-sm sm:text-base tracking-wide truncate">
+                            <span className="font-semibold text-white text-sm sm:text-base tracking-wide truncate" title={disc.name}>
                                 {disc.name}
                             </span>
                         </div>
 
-                        {/* Badge de % e Contador de Questões */}
-                        <div className="flex items-center gap-3 self-end sm:self-auto flex-shrink-0">
-                            {renderBadge(disc)}
-                            <span className="text-xs sm:text-sm text-gray-400 font-mono">
+                        {/* Badge de % e Contador de Questões - Alinhados em colunas com espaçamento seguro */}
+                        <div className="flex items-center gap-4 sm:gap-6 self-end sm:self-auto flex-shrink-0">
+                            <div className="flex justify-end">
+                                {renderBadge(disc)}
+                            </div>
+                            <span className="text-xs sm:text-sm text-gray-400 font-mono whitespace-nowrap min-w-[130px] sm:min-w-[145px] text-right">
                                 ({disc.correct}/{disc.total} questões)
                             </span>
                         </div>
