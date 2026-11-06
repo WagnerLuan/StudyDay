@@ -1,5 +1,3 @@
-"use client";
-
 import * as React from 'react';
 import { StudyPlan, Discipline, StudyBlock } from '../types';
 import { PlusIcon, ArrowLeftIcon, ArrowRightIcon, CalendarIcon, TrashIcon } from '../constants';
@@ -7,6 +5,8 @@ import StudyBlockCard from './StudyBlockCard';
 import AddBlockModal from './AddBlockModal';
 import BlockDetailModal from './BlockDetailModal';
 import PlanFilter from './PlanFilter';
+import BlockExcelImportModal from './BlockExcelImportModal';
+import { ParsedBlockImport, downloadBlockExcelTemplate } from '../src/utils/excelBlockUtils';
 
 interface BlockPlanningPageProps {
     plans: StudyPlan[];
@@ -15,6 +15,7 @@ interface BlockPlanningPageProps {
     onDeleteBlock: (blockId: string) => Promise<void>;
     onCompleteBlock: (block: StudyBlock, date: string) => void;
     onClearWeek: (blockIds: string[]) => Promise<void>;
+    onImportBlocks?: (blocks: Partial<StudyBlock>[], mode: 'append' | 'replace', existingWeekBlockIds?: string[]) => Promise<void>;
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
 }
@@ -26,11 +27,13 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
     onDeleteBlock,
     onCompleteBlock,
     onClearWeek,
+    onImportBlocks,
     selectedFilterPlanIds,
     onSelectPlans
 }) => {
     const [isAddModalOpen, setIsAddModalOpen] = React.useState(false);
     const [isDetailModalOpen, setIsDetailModalOpen] = React.useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = React.useState(false);
     const [selectedDay, setSelectedDay] = React.useState(1);
     const [selectedDateStr, setSelectedDateStr] = React.useState('');
     const [activeBlock, setActiveBlock] = React.useState<StudyBlock | null>(null);
@@ -165,31 +168,33 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
         });
     }, [blocks, selectedFilterPlanIds, plans]);
 
-    const handleClearWeekRequest = () => {
-        const blockIdsToClear: string[] = [];
-        
+    const currentWeekBlockIds = React.useMemo(() => {
+        const ids: string[] = [];
         days.forEach((day, index) => {
             const dateForDay = weekDays[index];
             const dateStr = dateForDay.toISOString().split('T')[0];
             
-            const dayBlocks = filteredBlocks
-                .filter(b => {
-                    if (b.day_of_week !== day.id) return false;
-                    if (b.specific_date) {
-                        return b.specific_date === dateStr;
-                    }
-                    if (b.created_at) {
-                        const createdAtDate = new Date(b.created_at);
-                        createdAtDate.setHours(0, 0, 0, 0);
-                        const currentDayDate = new Date(dateForDay);
-                        currentDayDate.setHours(0, 0, 0, 0);
-                        return currentDayDate >= createdAtDate;
-                    }
-                    return true;
-                });
-            
-            dayBlocks.forEach(b => blockIdsToClear.push(b.id));
+            const dayBlocks = filteredBlocks.filter(b => {
+                if (b.day_of_week !== day.id) return false;
+                if (b.specific_date) {
+                    return b.specific_date === dateStr;
+                }
+                if (b.created_at) {
+                    const createdAtDate = new Date(b.created_at);
+                    createdAtDate.setHours(0, 0, 0, 0);
+                    const currentDayDate = new Date(dateForDay);
+                    currentDayDate.setHours(0, 0, 0, 0);
+                    return currentDayDate >= createdAtDate;
+                }
+                return true;
+            });
+            dayBlocks.forEach(b => ids.push(b.id));
         });
+        return ids;
+    }, [filteredBlocks, days, weekDays]);
+
+    const handleClearWeekRequest = () => {
+        const blockIdsToClear = [...currentWeekBlockIds];
 
         if (blockIdsToClear.length === 0) {
             alert("Não há blocos planejados para limpar nesta semana.");
@@ -199,6 +204,40 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
         if (confirm(`Deseja realmente apagar todos os ${blockIdsToClear.length} blocos planejados para esta semana? Esta ação não pode ser desfeita.`)) {
             onClearWeek(blockIdsToClear);
         }
+    };
+
+    const handleConfirmImport = async (parsedBlocks: ParsedBlockImport[], mode: 'append' | 'replace') => {
+        if (!onImportBlocks) {
+            alert('Função de importação não configurada.');
+            return;
+        }
+
+        const blocksToPersist: Partial<StudyBlock>[] = parsedBlocks.map(blk => {
+            // Se veio data explícita na planilha (ex: 2026-11-09), utiliza-a; senão calcula com base na semana exibida
+            let specificDate = blk.dateStr;
+            if (!specificDate) {
+                const matchingDayDate = weekDays.find(d => d.getDay() === blk.dayOfWeek);
+                specificDate = matchingDayDate ? matchingDayDate.toISOString().split('T')[0] : undefined;
+            }
+
+            // Horário com início e fim (ex: 20:00–20:50) ou início simples
+            const formattedTime = blk.timeRange || blk.startTime;
+
+            return {
+                plan_id: blk.planId,
+                discipline_id: blk.disciplineId,
+                topic_id: blk.topicId,
+                topic_name: blk.topicName,
+                name: blk.name,
+                type: blk.categories,
+                day_of_week: blk.dayOfWeek,
+                duration_minutes: blk.durationMinutes,
+                start_time: formattedTime,
+                specific_date: specificDate,
+            };
+        });
+
+        await onImportBlocks(blocksToPersist, mode, currentWeekBlockIds);
     };
 
     const handleCopyBlock = (block: StudyBlock, targetDate: string) => {
@@ -226,18 +265,18 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
                     <p className="text-gray-400 mt-1">Organize sua rotina semanal de estudos.</p>
                 </div>
 
-                <div className="flex items-center gap-3 bg-gray-800 p-2 rounded-xl border border-gray-700 shadow-lg">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-gray-800 p-2 rounded-xl border border-gray-700 shadow-lg">
                     <button onClick={() => navigateWeek(-1)} className="p-2 hover:bg-gray-700 rounded-lg text-gray-400 hover:text-white transition-colors">
                         <ArrowLeftIcon className="w-5 h-5" />
                     </button>
-                    <div className="flex flex-col items-center px-4 min-w-[180px]">
+                    <div className="flex flex-col items-center px-3 sm:px-4 min-w-[150px] sm:min-w-[180px]">
                         <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">Semana</span>
                         <span className="text-sm font-bold text-white">{formatDateRange()}</span>
                     </div>
                     <button onClick={() => navigateWeek(1)} className="p-2 hover:bg-gray-700 rounded-lg text-gray-400 hover:text-white transition-colors">
                         <ArrowRightIcon className="w-5 h-5" />
                     </button>
-                    <div className="h-8 w-px bg-gray-700 mx-1"></div>
+                    <div className="h-8 w-px bg-gray-700 mx-1 hidden sm:block"></div>
                     <button onClick={goToToday} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded-lg transition-colors">Hoje</button>
                     <div className="relative group">
                         <input type="date" onChange={handleDateSelect} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
@@ -245,14 +284,50 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
                             <CalendarIcon className="w-5 h-5" />
                         </button>
                     </div>
+
                     <div className="h-8 w-px bg-gray-700 mx-1"></div>
+
+                    {/* Botão Baixar Modelo Excel */}
+                    <button
+                        type="button"
+                        onClick={() => downloadBlockExcelTemplate(plans)}
+                        className="px-3 py-1.5 bg-gray-700/80 hover:bg-gray-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold rounded-lg transition-all border border-emerald-500/20 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                        title="Baixar planilha modelo do Excel (.xlsx)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        <span className="hidden lg:inline">Baixar Modelo</span>
+                        <span className="lg:hidden">Modelo</span>
+                    </button>
+
+                    {/* Botão Importar Semana (Excel) */}
+                    <button
+                        type="button"
+                        onClick={() => setIsImportModalOpen(true)}
+                        className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
+                        title="Importar rotina semanal de estudos via Excel (.xlsx)"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="17 8 12 3 7 8"></polyline>
+                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                        </svg>
+                        <span>Importar Semana (Excel)</span>
+                    </button>
+
+                    <div className="h-8 w-px bg-gray-700 mx-1"></div>
+
+                    {/* Botão Limpar Semana */}
                     <button 
                         onClick={handleClearWeekRequest}
-                        className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white text-xs font-bold rounded-lg transition-all border border-red-600/30 flex items-center gap-2"
+                        className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white text-xs font-bold rounded-lg transition-all border border-red-600/30 flex items-center gap-1.5 cursor-pointer"
                         title="Limpar todos os blocos da semana atual"
                     >
                         <TrashIcon className="w-3.5 h-3.5" />
-                        Limpar Semana
+                        <span className="hidden sm:inline">Limpar Semana</span>
                     </button>
                 </div>
             </header>
@@ -373,6 +448,14 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
                     }
                 }}
                 onCopy={handleCopyBlock}
+            />
+
+            <BlockExcelImportModal 
+                isOpen={isImportModalOpen}
+                onClose={() => setIsImportModalOpen(false)}
+                plans={plans}
+                currentWeekBlockCount={currentWeekBlockIds.length}
+                onConfirmImport={handleConfirmImport}
             />
         </div>
     );

@@ -1217,6 +1217,57 @@ const App: React.FC = () => {
     finally { dismissToast(loadingToastId); }
   };
 
+  const handleImportStudyBlocks = async (
+    blocksToImport: Partial<StudyBlock>[],
+    mode: 'append' | 'replace',
+    existingWeekBlockIds?: string[]
+  ) => {
+    if (!session?.user?.id) return;
+    const userId = session.user.id;
+    let loadingToastId = showLoading("Importando blocos da semana...");
+
+    try {
+        // Se o modo for 'replace' e houver blocos na semana atual, apaga-os primeiro
+        if (mode === 'replace' && existingWeekBlockIds && existingWeekBlockIds.length > 0) {
+            const { error: delError } = await supabase
+                .from('study_blocks')
+                .delete()
+                .in('id', existingWeekBlockIds)
+                .eq('user_id', userId);
+            if (delError) throw delError;
+        }
+
+        const serializedPayload = blocksToImport.map(b => ({
+            id: crypto.randomUUID(),
+            user_id: userId,
+            plan_id: b.plan_id || null,
+            discipline_id: b.discipline_id,
+            topic_id: b.topic_id || null,
+            topic_name: b.topic_name || null,
+            name: b.name || null,
+            type: Array.isArray(b.type) ? JSON.stringify(b.type) : (b.type || JSON.stringify(['Teoria'])),
+            day_of_week: b.day_of_week,
+            start_time: b.start_time || null,
+            duration_minutes: b.duration_minutes || 60,
+            specific_date: b.specific_date || null
+        }));
+
+        const { error: insError } = await supabase
+            .from('study_blocks')
+            .insert(serializedPayload as any);
+
+        if (insError) throw insError;
+
+        showSuccess(`${serializedPayload.length} blocos importados com sucesso!`);
+        await fetchPlans(userId);
+    } catch (e: any) {
+        showError("Erro na importação: " + e.message);
+        throw e;
+    } finally {
+        dismissToast(loadingToastId);
+    }
+  };
+
   const handleSaveSimulado = async (s: Omit<Simulado, 'id'> & { id?: string }) => {
     if (!session?.user?.id) return;
     let loadingToastId = showLoading("Salvando simulado...");
@@ -1452,7 +1503,7 @@ const App: React.FC = () => {
       case 'materias': return <DisciplinesPage plans={plans} onViewDiscipline={(pid, did) => { setSelectedDisciplineInfo({ planId: pid, disciplineId: did }); setCurrentPage('disciplineDetail'); }} onEditDiscipline={(pid, did) => { setEditingDiscipline({ planId: pid, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setDisciplineModalOpen(true); }} onDeleteDiscipline={(pid, did) => { setDisciplineToDelete({ planId: pid, disciplineId: did }); setDisciplineDeleteModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'edital': return <EditalPage plans={plans} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalOpen(true); setLogModalContext({ plan: p, discipline: d, topic: t, source: 'edital' }); }} onGenericAddLog={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} targetDisciplineId={targetDisciplineForEdital} />;
       case 'planejamento': return <PlanejamentoPage plans={plans} onRegisterManualStudy={(pid, did) => { setLogModalContext({ plan: plans.find(p => p.id === pid)!, discipline: plans.find(p => p.id === pid)!.disciplines.find(d => d.id === did)! }); setLogModalOpen(true); }} onStartStudy={s => { startTimer({ planId: s.planId, disciplineId: s.disciplineId, topicId: null }, 'cronometro', s.totalTime * 60); setTimerModalOpen(true); }} onNavigate={setCurrentPage} generatedCycles={allCycles} onGenerateCycle={handleGenerateCycle} onSaveManualCycle={handleSaveManualCycle} onRemoveCycle={async (id) => { await supabase.from('generated_cycles').delete().eq('plan_id', id); await fetchPlans(session!.user.id); }} onStartNextCycle={handleStartNextCycle} onEditCycle={id => { setPlanIdToEditCycle(id); setIsEditCycleSessionsModalOpen(true); }} onViewEdital={handleViewEditalFromPlanejamento} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
-      case 'blocos': return <BlockPlanningPage plans={plans} blocks={studyBlocks} onSaveBlock={handleSaveStudyBlock} onDeleteBlock={handleDeleteStudyBlock} onCompleteBlock={handleCompleteStudyBlock} onClearWeek={handleClearWeekBlocks} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
+      case 'blocos': return <BlockPlanningPage plans={plans} blocks={studyBlocks} onSaveBlock={handleSaveStudyBlock} onDeleteBlock={handleDeleteStudyBlock} onCompleteBlock={handleCompleteStudyBlock} onClearWeek={handleClearWeekBlocks} onImportBlocks={handleImportStudyBlocks} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
       case 'caderno': return <NotesPage plans={plans} userId={session!.user.id} />;
       case 'flashcards': return <FlashcardsPage userId={session!.user.id} onStartReview={(deck) => { setActiveReviewDeck(deck); setIsFlashcardReviewOpen(true); }} />;
       case 'historico': return <HistoryPage plans={plans} onAddLogRequest={() => { setLogModalContext({ plan: plans[0], discipline: null }); setLogModalOpen(true); }} onEditLogRequest={(p, d, l) => { setLogModalContext({ plan: p, discipline: d, logToEdit: l }); setLogModalOpen(true); }} onDeleteLogRequest={(pid, did, lid) => { setLogToDelete({ planId: pid, disciplineId: did, logId: lid }); setLogDeleteModalOpen(true); }} onViewLogRequest={l => { setLogToView(l); setViewLogModalOpen(true); }} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} />;
