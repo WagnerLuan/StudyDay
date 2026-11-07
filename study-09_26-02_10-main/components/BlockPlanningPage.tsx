@@ -259,76 +259,91 @@ const BlockPlanningPage: React.FC<BlockPlanningPageProps> = ({
 
     return (
         <div className="space-y-6">
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <header className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Planejamento por Blocos</h1>
                     <p className="text-gray-400 mt-1">Organize sua rotina semanal de estudos.</p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-gray-800 p-2 rounded-xl border border-gray-700 shadow-lg">
-                    <button onClick={() => navigateWeek(-1)} className="p-2 hover:bg-gray-700 rounded-lg text-gray-400 hover:text-white transition-colors">
-                        <ArrowLeftIcon className="w-5 h-5" />
-                    </button>
-                    <div className="flex flex-col items-center px-3 sm:px-4 min-w-[150px] sm:min-w-[180px]">
-                        <span className="text-xs font-black text-emerald-400 uppercase tracking-widest">Semana</span>
-                        <span className="text-sm font-bold text-white">{formatDateRange()}</span>
-                    </div>
-                    <button onClick={() => navigateWeek(1)} className="p-2 hover:bg-gray-700 rounded-lg text-gray-400 hover:text-white transition-colors">
-                        <ArrowRightIcon className="w-5 h-5" />
-                    </button>
-                    <div className="h-8 w-px bg-gray-700 mx-1 hidden sm:block"></div>
-                    <button onClick={goToToday} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded-lg transition-colors">Hoje</button>
-                    <div className="relative group">
-                        <input type="date" onChange={handleDateSelect} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
-                        <button className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg group-hover:bg-emerald-500 group-hover:text-white transition-all">
-                            <CalendarIcon className="w-5 h-5" />
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-gray-800 p-2 sm:p-2.5 rounded-xl border border-gray-700 shadow-lg w-full xl:w-auto">
+                    {/* [ ← SEMANA 02 nov. - 08 nov. → ] */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                        <button onClick={() => navigateWeek(-1)} className="p-2 hover:bg-gray-700 rounded-lg text-gray-400 hover:text-white transition-colors cursor-pointer" title="Semana anterior">
+                            <ArrowLeftIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </button>
+                        <div className="flex flex-col items-center px-2 sm:px-3 min-w-[140px] sm:min-w-[170px] select-none">
+                            <span className="text-[10px] sm:text-xs font-black text-emerald-400 uppercase tracking-widest">Semana</span>
+                            <span className="text-xs sm:text-sm font-bold text-white">{formatDateRange()}</span>
+                        </div>
+                        <button onClick={() => navigateWeek(1)} className="p-2 hover:bg-gray-700 rounded-lg text-gray-400 hover:text-white transition-colors cursor-pointer" title="Próxima semana">
+                            <ArrowRightIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                         </button>
                     </div>
 
-                    <div className="h-8 w-px bg-gray-700 mx-1"></div>
+                    {/* Divisor vertical */}
+                    <div className="hidden sm:block h-6 sm:h-7 w-px bg-gray-700 mx-0.5 sm:mx-1 flex-shrink-0"></div>
 
-                    {/* Botão Baixar Modelo Excel */}
-                    <button
-                        type="button"
-                        onClick={() => downloadBlockExcelTemplate(plans)}
-                        className="px-3 py-1.5 bg-gray-700/80 hover:bg-gray-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold rounded-lg transition-all border border-emerald-500/20 flex items-center gap-1.5 cursor-pointer shadow-xs"
-                        title="Baixar planilha modelo do Excel (.xlsx)"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="7 10 12 15 17 10"></polyline>
-                            <line x1="12" y1="15" x2="12" y2="3"></line>
-                        </svg>
-                        <span className="hidden lg:inline">Baixar Modelo</span>
-                        <span className="lg:hidden">Modelo</span>
-                    </button>
+                    {/* [ Hoje ] [ 📅 ] */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={goToToday} className="px-2.5 sm:px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer" title="Ir para a semana atual">
+                            Hoje
+                        </button>
+                        <div className="relative group">
+                            <input type="date" onChange={handleDateSelect} className="absolute inset-0 opacity-0 cursor-pointer z-10" />
+                            <button className="p-1.5 sm:p-2 bg-emerald-500/10 text-emerald-400 rounded-lg group-hover:bg-emerald-500 group-hover:text-white transition-all cursor-pointer" title="Escolher data no calendário">
+                                <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                            </button>
+                        </div>
+                    </div>
 
-                    {/* Botão Importar Semana (Excel) */}
-                    <button
-                        type="button"
-                        onClick={() => setIsImportModalOpen(true)}
-                        className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all shadow-md flex items-center gap-1.5 cursor-pointer"
-                        title="Importar rotina semanal de estudos via Excel (.xlsx)"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                            <polyline points="17 8 12 3 7 8"></polyline>
-                            <line x1="12" y1="3" x2="12" y2="15"></line>
-                        </svg>
-                        <span>Importar Semana (Excel)</span>
-                    </button>
+                    {/* Divisor vertical */}
+                    <div className="hidden sm:block h-6 sm:h-7 w-px bg-gray-700 mx-0.5 sm:mx-1 flex-shrink-0"></div>
 
-                    <div className="h-8 w-px bg-gray-700 mx-1"></div>
+                    {/* [ 📥 Baixar Modelo ] [ 📤 Importar Semana (Excel) ] */}
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                        <button
+                            type="button"
+                            onClick={() => downloadBlockExcelTemplate(plans)}
+                            className="px-2.5 sm:px-3 py-1.5 bg-gray-700/80 hover:bg-gray-700 text-emerald-400 hover:text-emerald-300 text-xs font-bold rounded-lg transition-all border border-emerald-500/20 flex items-center gap-1.5 cursor-pointer shadow-xs whitespace-nowrap"
+                            title="Baixar planilha modelo do Excel (.xlsx)"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 flex-shrink-0">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            <span>Baixar Modelo</span>
+                        </button>
 
-                    {/* Botão Limpar Semana */}
-                    <button 
-                        onClick={handleClearWeekRequest}
-                        className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white text-xs font-bold rounded-lg transition-all border border-red-600/30 flex items-center gap-1.5 cursor-pointer"
-                        title="Limpar todos os blocos da semana atual"
-                    >
-                        <TrashIcon className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">Limpar Semana</span>
-                    </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsImportModalOpen(true)}
+                            className="px-2.5 sm:px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg transition-all shadow-md flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                            title="Importar rotina semanal de estudos via Excel (.xlsx)"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 flex-shrink-0">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            <span>Importar Semana (Excel)</span>
+                        </button>
+                    </div>
+
+                    {/* Divisor vertical */}
+                    <div className="hidden sm:block h-6 sm:h-7 w-px bg-gray-700 mx-0.5 sm:mx-1 flex-shrink-0"></div>
+
+                    {/* [ 🗑️ Limpar Semana ] */}
+                    <div className="flex items-center flex-shrink-0">
+                        <button 
+                            onClick={handleClearWeekRequest}
+                            className="px-2.5 sm:px-3 py-1.5 bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white text-xs font-bold rounded-lg transition-all border border-red-600/30 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                            title="Limpar todos os blocos da semana atual"
+                        >
+                            <TrashIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Limpar Semana</span>
+                        </button>
+                    </div>
                 </div>
             </header>
 
