@@ -61,12 +61,57 @@ const RegistrarSimuladoModal: React.FC<RegistrarSimuladoModalProps> = ({ isOpen,
     }, [planId, plans, simuladoToEdit]);
 
     const handleDisciplineChange = (id: string, field: keyof SimuladoDiscipline, value: string | number) => {
-        setDisciplines(prev => prev.map(d => d.id === id ? { ...d, [field]: value } : d));
+        const val = value === '' ? 0 : Number(value);
+        setDisciplines(prev => prev.map(d => d.id === id ? { ...d, [field]: isNaN(val) ? 0 : val } : d));
     };
 
     const handleRemoveDiscipline = (id: string) => {
         setDisciplines(prev => prev.filter(d => d.id !== id));
     };
+
+    // Cálculo em tempo real dos totais acumulados de todas as disciplinas
+    const totals = React.useMemo(() => {
+        let totalQuestions = 0;
+        let totalCorrect = 0;
+        let totalIncorrect = 0;
+        let totalBlank = 0;
+        let totalPoints = 0;
+        let maxPossiblePoints = 0;
+        let hasCustomWeights = false;
+
+        disciplines.forEach(d => {
+            const weight = Number(d.weight) || 0;
+            if (weight !== 1) hasCustomWeights = true;
+            const q = Number(d.totalQuestions) || 0;
+            const c = Number(d.correctAnswers) || 0;
+            const i = Number(d.incorrectAnswers) || 0;
+            const b = Number(d.blankAnswers) || 0;
+
+            totalQuestions += q;
+            totalCorrect += c;
+            totalIncorrect += i;
+            totalBlank += b;
+            totalPoints += weight * c;
+            maxPossiblePoints += weight * q;
+        });
+
+        // Aproveitamento geral com tratamento estrito de divisão por zero
+        let performance = 0;
+        if (hasCustomWeights && maxPossiblePoints > 0) {
+            performance = (totalPoints / maxPossiblePoints) * 100;
+        } else if (totalQuestions > 0) {
+            performance = (totalCorrect / totalQuestions) * 100;
+        }
+
+        return {
+            totalQuestions,
+            totalCorrect,
+            totalIncorrect,
+            totalBlank,
+            totalPoints,
+            performance: isNaN(performance) ? 0 : performance
+        };
+    }, [disciplines]);
 
     const handleSave = () => {
         if (!planId) {
@@ -99,7 +144,7 @@ const RegistrarSimuladoModal: React.FC<RegistrarSimuladoModalProps> = ({ isOpen,
             >
                 <header className="p-4 flex justify-between items-center border-b border-gray-700 bg-gray-900/50 rounded-t-xl">
                     <h2 className="text-2xl font-bold text-emerald-400">{simuladoToEdit ? 'Editar Simulado' : 'Registrar Novo Simulado'}</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white"><XIcon /></button>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white cursor-pointer"><XIcon /></button>
                 </header>
 
                 <main className="p-6 space-y-6 overflow-y-auto">
@@ -141,42 +186,131 @@ const RegistrarSimuladoModal: React.FC<RegistrarSimuladoModalProps> = ({ isOpen,
                         </div>
                     </div>
 
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-gray-900/50">
+                    <div className="overflow-x-auto max-h-[55vh] overflow-y-auto rounded-xl border border-gray-700 bg-gray-900/40 relative">
+                        <table className="w-full text-left text-sm border-collapse">
+                            <thead className="bg-gray-900 sticky top-0 z-10 border-b border-gray-700 shadow-xs">
                                 <tr>
-                                    <th className="p-2 w-2/5">Disciplina</th>
-                                    <th className="p-2 text-center">Peso</th>
-                                    <th className="p-2 text-center">Qtd.</th>
-                                    <th className="p-2 text-center">Certas</th>
-                                    <th className="p-2 text-center">Erradas</th>
-                                    <th className="p-2 text-center">Brancas</th>
-                                    <th className="p-2 text-center">Pontos</th>
-                                    <th className="p-2 text-center">Aprov.</th>
-                                    <th className="p-2 text-center">Ação</th>
+                                    <th className="p-3 w-2/5 font-semibold text-gray-300">Disciplina</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Peso</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Qtd.</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Certas</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Erradas</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Brancas</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Pontos</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Aprov.</th>
+                                    <th className="p-3 text-center font-semibold text-gray-300">Ação</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody className="divide-y divide-gray-700/60">
                                 {disciplines.map(d => {
-                                    const pontos = d.weight * d.correctAnswers;
-                                    const aproveitamento = d.totalQuestions > 0 ? (d.correctAnswers / d.totalQuestions) * 100 : 0;
+                                    const weight = Number(d.weight) || 0;
+                                    const totalQ = Number(d.totalQuestions) || 0;
+                                    const correctQ = Number(d.correctAnswers) || 0;
+                                    const pontos = weight * correctQ;
+                                    const aproveitamento = totalQ > 0 ? (correctQ / totalQ) * 100 : 0;
                                     return (
-                                        <tr key={d.id} className="border-b border-gray-700">
-                                            <td className="p-1 font-semibold">{d.name}</td>
-                                            <td className="p-1"><input type="number" value={d.weight} onChange={e => handleDisciplineChange(d.id, 'weight', Number(e.target.value))} className="w-16 bg-gray-700 text-center p-2 rounded-md border border-gray-600"/></td>
-                                            <td className="p-1"><input type="number" value={d.totalQuestions} onChange={e => handleDisciplineChange(d.id, 'totalQuestions', Number(e.target.value))} className="w-16 bg-gray-700 text-center p-2 rounded-md border border-gray-600"/></td>
-                                            <td className="p-1"><input type="number" value={d.correctAnswers} onChange={e => handleDisciplineChange(d.id, 'correctAnswers', Number(e.target.value))} className="w-16 bg-green-900/50 text-green-300 text-center p-2 rounded-md border border-green-700"/></td>
-                                            <td className="p-1"><input type="number" value={d.incorrectAnswers} onChange={e => handleDisciplineChange(d.id, 'incorrectAnswers', Number(e.target.value))} className="w-16 bg-red-900/50 text-red-300 text-center p-2 rounded-md border border-red-700"/></td>
-                                            <td className="p-1"><input type="number" value={d.blankAnswers} onChange={e => handleDisciplineChange(d.id, 'blankAnswers', Number(e.target.value))} className="w-16 bg-gray-700 text-center p-2 rounded-md border border-gray-600"/></td>
-                                            <td className="p-1 text-center font-bold text-yellow-400">{pontos}</td>
-                                            <td className="p-1 text-center font-bold">{aproveitamento.toFixed(0)}%</td>
-                                            <td className="p-1 text-center">
-                                                <button onClick={() => handleRemoveDiscipline(d.id)} className="text-red-500 hover:text-red-400 p-1 rounded-full"><TrashIcon className="w-5 h-5"/></button>
+                                        <tr key={d.id} className="hover:bg-gray-750/50 transition-colors">
+                                            <td className="p-2.5 font-semibold text-white">{d.name}</td>
+                                            <td className="p-2 text-center">
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    value={d.weight} 
+                                                    onFocus={e => e.target.select()}
+                                                    onChange={e => handleDisciplineChange(d.id, 'weight', e.target.value)} 
+                                                    className="w-16 bg-gray-700 text-center p-2 rounded-md border border-gray-600 focus:ring-1 focus:ring-emerald-500"
+                                                />
+                                            </td>
+                                            <td className="p-2 text-center">
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    value={d.totalQuestions} 
+                                                    onFocus={e => e.target.select()}
+                                                    onChange={e => handleDisciplineChange(d.id, 'totalQuestions', e.target.value)} 
+                                                    className="w-16 bg-gray-700 text-center p-2 rounded-md border border-gray-600 focus:ring-1 focus:ring-emerald-500"
+                                                />
+                                            </td>
+                                            <td className="p-2 text-center">
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    value={d.correctAnswers} 
+                                                    onFocus={e => e.target.select()}
+                                                    onChange={e => handleDisciplineChange(d.id, 'correctAnswers', e.target.value)} 
+                                                    className="w-16 bg-green-950/60 text-green-300 text-center p-2 rounded-md border border-green-700 focus:ring-1 focus:ring-green-500"
+                                                />
+                                            </td>
+                                            <td className="p-2 text-center">
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    value={d.incorrectAnswers} 
+                                                    onFocus={e => e.target.select()}
+                                                    onChange={e => handleDisciplineChange(d.id, 'incorrectAnswers', e.target.value)} 
+                                                    className="w-16 bg-red-950/60 text-red-300 text-center p-2 rounded-md border border-red-700 focus:ring-1 focus:ring-red-500"
+                                                />
+                                            </td>
+                                            <td className="p-2 text-center">
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    value={d.blankAnswers} 
+                                                    onFocus={e => e.target.select()}
+                                                    onChange={e => handleDisciplineChange(d.id, 'blankAnswers', e.target.value)} 
+                                                    className="w-16 bg-gray-700 text-center p-2 rounded-md border border-gray-600 focus:ring-1 focus:ring-emerald-500"
+                                                />
+                                            </td>
+                                            <td className="p-2 text-center font-bold text-yellow-400">{pontos}</td>
+                                            <td className="p-2 text-center font-bold text-white">{aproveitamento.toFixed(0)}%</td>
+                                            <td className="p-2 text-center">
+                                                <button onClick={() => handleRemoveDiscipline(d.id)} className="text-red-500 hover:text-red-400 p-1.5 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer" title="Remover disciplina"><TrashIcon className="w-5 h-5"/></button>
                                             </td>
                                         </tr>
                                     );
                                 })}
                             </tbody>
+                            {disciplines.length > 0 && (
+                                <tfoot className="sticky bottom-0 z-20 bg-gray-900 border-t-2 border-emerald-500 shadow-[0_-4px_16px_rgba(0,0,0,0.6)]">
+                                    <tr className="bg-gray-900">
+                                        <td className="p-3 font-extrabold text-white text-sm uppercase tracking-wider bg-gray-900">
+                                            TOTAL GERAL
+                                        </td>
+                                        <td className="p-3 text-center text-gray-400 font-semibold bg-gray-900">
+                                            -
+                                        </td>
+                                        <td className="p-3 text-center bg-gray-900">
+                                            <span className="inline-block min-w-16 px-2.5 py-1.5 bg-gray-800 text-white font-bold text-sm rounded-md border border-gray-600 shadow-inner">
+                                                {totals.totalQuestions}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-center bg-gray-900">
+                                            <span className="inline-block min-w-16 px-2.5 py-1.5 bg-green-950/70 text-green-300 font-bold text-sm rounded-md border border-green-700/70 shadow-inner">
+                                                {totals.totalCorrect}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-center bg-gray-900">
+                                            <span className="inline-block min-w-16 px-2.5 py-1.5 bg-red-950/70 text-red-300 font-bold text-sm rounded-md border border-red-700/70 shadow-inner">
+                                                {totals.totalIncorrect}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-center bg-gray-900">
+                                            <span className="inline-block min-w-16 px-2.5 py-1.5 bg-gray-800 text-gray-300 font-bold text-sm rounded-md border border-gray-600 shadow-inner">
+                                                {totals.totalBlank}
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-center font-extrabold text-yellow-400 text-base bg-gray-900">
+                                            {totals.totalPoints}
+                                        </td>
+                                        <td className="p-3 text-center bg-gray-900">
+                                            <span className="inline-block px-3 py-1.5 bg-emerald-500/20 text-emerald-400 font-black text-sm rounded-md border border-emerald-500/50 shadow-sm">
+                                                {totals.totalQuestions > 0 ? (totals.performance % 1 === 0 ? totals.performance.toFixed(0) : totals.performance.toFixed(1)) : 0}%
+                                            </span>
+                                        </td>
+                                        <td className="p-3 text-center bg-gray-900"></td>
+                                    </tr>
+                                </tfoot>
+                            )}
                         </table>
                         {disciplines.length === 0 && (
                             <p className="text-center text-gray-500 py-8">Selecione um plano para carregar as disciplinas.</p>
