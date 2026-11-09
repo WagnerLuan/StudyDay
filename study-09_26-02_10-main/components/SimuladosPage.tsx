@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { PlusCircleIcon, StarIcon, CheckIcon, XMarkIcon, PencilIcon, TrashIcon, ChevronDownIcon, ClockIcon, MinusCircleIcon } from '../constants';
+import { PlusCircleIcon, StarIcon, CheckIcon, XMarkIcon, PencilIcon, TrashIcon, ChevronDownIcon, ClockIcon, MinusCircleIcon, QuestionMarkCircleIcon } from '../constants';
 import RegistrarSimuladoModal from './RegistrarSimuladoModal';
 import { Simulado, StudyPlan } from '../types';
 import PlanFilter from './PlanFilter';
@@ -33,7 +33,7 @@ const SimuladoListItem: React.FC<{
 
         const performance = totalQuestions > 0 ? (totalCorrect / totalQuestions) * 100 : 0;
 
-        return { totalCorrect, totalIncorrect, totalBlank, totalPoints, performance };
+        return { totalCorrect, totalIncorrect, totalBlank, totalPoints, performance, totalQuestions };
     }, [simulado]);
     
     const formattedDate = new Date(simulado.date + 'T00:00:00').toLocaleDateString('pt-BR', {
@@ -48,10 +48,14 @@ const SimuladoListItem: React.FC<{
                 <p className="font-bold text-white">{formattedDate}</p>
                 <p className="text-sm text-gray-400">{simulado.name} ({simulado.examStyle})</p>
             </div>
-            <div className="flex-shrink-0 bg-gray-900/50 px-4 py-2 rounded-lg flex items-center gap-4">
+            <div className="flex-shrink-0 bg-gray-900/50 px-4 py-2 rounded-lg flex flex-wrap items-center gap-3 sm:gap-4">
                 <div className="flex items-center gap-1 text-xs" title="Tempo Gasto">
                     <ClockIcon className="w-5 h-5 text-gray-400" />
                     <span className="font-semibold text-white">{simulado.timeSpent}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs bg-gray-800/80 px-2 py-1 rounded border border-gray-700/60" title="Total de Questões">
+                    <span className="text-cyan-400 font-bold text-xs">📝</span>
+                    <span className="font-semibold text-white">{stats.totalQuestions} <span className="text-gray-400 font-normal">quest.</span></span>
                 </div>
                 <div className="flex items-center gap-1 text-xs" title="Acertos">
                      <CheckIcon className="w-5 h-5 text-green-400" />
@@ -227,6 +231,7 @@ const SimuladosPage: React.FC<SimuladosPageProps> = ({
                                     <h2 className="text-white font-semibold mb-4 text-base">Último Simulado</h2>
                                     <div className="flex items-center justify-between">
                                         <div className="space-y-2">
+                                            <p className="font-semibold text-gray-400">Total de Questões: <span className="text-white font-bold">{latestSimuladoStats.totalQuestions}</span></p>
                                             <p className="font-semibold text-gray-400">Acertos: <span className="text-green-400">{latestSimuladoStats.acertos}</span></p>
                                             <p className="font-semibold text-gray-400">Erros: <span className="text-red-400">{latestSimuladoStats.erros}</span></p>
                                             <p className="font-semibold text-gray-400">Brancos: <span className="text-gray-300">{latestSimuladoStats.brancos}</span></p>
