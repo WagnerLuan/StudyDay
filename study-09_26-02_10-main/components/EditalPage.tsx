@@ -3,7 +3,7 @@ import { StudyPlan, Discipline, Topic, HistoryLog, Revision, TopicIncidence } fr
 import { PlusCircleIcon, CheckIcon, XMarkIcon, PencilIcon, PercentIcon, LinkIcon, EditIcon, ChevronDownIcon, FilterIcon } from '../constants';
 import ProgressBar from './ProgressBar';
 import { formatDateToDisplay, parseDate } from '../src/utils/dateUtils';
-import { sortTopics } from '../src/utils/topicUtils';
+import { sortTopics, computeHierarchicalNumbers, stripTopicPrefix, detectSubtopicFromLine } from '../src/utils/topicUtils';
 import PlanFilter from './PlanFilter';
 import RevisionSummaryPanel from './RevisionSummaryPanel';
 import IncidenceSelector, { INCIDENCE_CONFIG, INCIDENCE_LEVELS } from './IncidenceSelector';
@@ -133,9 +133,13 @@ const TopicsTable: React.FC<{
                     </tr>
                 </thead>
                 <tbody>
-                    {sortedTopics.map(topic => (
+                    {sortedTopics.map(topic => {
+                        const isSub = Boolean(topic.isSubtopic || topic.name.startsWith('  '));
+                        const displayNum = topic.displayNumber || '';
+                        const cleanTitle = topic.cleanName ?? (stripTopicPrefix(topic.name) || topic.name.trim());
+                        return (
                         <tr key={topic.id} className={`border-b border-gray-700 last:border-b-0 ${topic.status === 'Concluído' ? 'bg-emerald-900/30' : ''}`}>
-                            <td className="py-3 pr-2 flex items-center gap-3 whitespace-normal break-words" style={{ paddingLeft: topic.name.startsWith('  ') ? '2rem' : '0' }}>
+                            <td className="py-3 pr-2 flex items-center gap-3 whitespace-normal break-words" style={{ paddingLeft: isSub ? '2rem' : '0' }}>
                                 <input
                                     type="checkbox"
                                     checked={topic.status === 'Concluído'}
@@ -144,7 +148,12 @@ const TopicsTable: React.FC<{
                                 />
                                 <div className="flex items-center gap-2">
                                     <span className={topic.status === 'Concluído' ? 'text-gray-400 line-through' : 'text-gray-200'}>
-                                        {topic.name}
+                                        {displayNum && (
+                                            <span className={`font-bold mr-1.5 ${topic.status === 'Concluído' ? 'text-gray-500' : 'text-emerald-400'}`}>
+                                                {displayNum}
+                                            </span>
+                                        )}
+                                        {cleanTitle}
                                     </span>
                                     <RevisionIndicator status={topic.revisionStatus} />
                                 </div>
@@ -191,7 +200,8 @@ const TopicsTable: React.FC<{
                                 </button>
                             </td>
                         </tr>
-                    ))}
+                        );
+                    })}
                 </tbody>
             </table>
         </div>
@@ -507,7 +517,12 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
         };
 
         const finalDisciplines = Array.from(disciplineMap.values()).map(aggDisc => {
-            let topicArray = sortTopics(aggDisc.topics);
+            const orderedRawTopics = sortTopics(aggDisc.topics).map(t => ({
+                ...t,
+                isSubtopic: t.isSubtopic ?? detectSubtopicFromLine(t.name),
+                cleanName: t.cleanName ?? (stripTopicPrefix(t.name) || t.name.trim()),
+            }));
+            let topicArray = computeHierarchicalNumbers(orderedRawTopics);
             
             // Apply incidence filter
             if (incidenceFilter !== 'Todas') {
@@ -525,7 +540,11 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
             let discRevisionStatus: RevisionStatus = null;
             
             topicArray.forEach(topic => {
-                const topicLogs = allLogs.filter(log => log.topic === topic.name && log.disciplineId === topic.originalDisciplineId);
+                const cleanTopicLower = (topic.cleanName || stripTopicPrefix(topic.name)).toLowerCase();
+                const topicLogs = allLogs.filter(log => 
+                    log.disciplineId === topic.originalDisciplineId &&
+                    (log.topic === topic.name || (cleanTopicLower && stripTopicPrefix(log.topic || '').toLowerCase() === cleanTopicLower))
+                );
                 topic.correct = topicLogs.reduce((sum, log) => (Number(sum) || 0) + (Number(log.correct) || 0), 0);
                 topic.incorrect = topicLogs.reduce((sum, log) => (Number(sum) || 0) + (Number(log.incorrect) || 0), 0);
                 topic.total = (Number(topic.correct) || 0) + (Number(topic.incorrect) || 0);
@@ -539,7 +558,11 @@ const EditalPage: React.FC<EditalPageProps> = ({ plans, onUpdateTopic, onAddLog,
                 }
 
                 // Calculate Topic Revision Status
-                const topicRevisions = allRevisions.filter(r => r.topicName === topic.name && r.disciplineId === topic.originalDisciplineId && r.status === 'Programada');
+                const topicRevisions = allRevisions.filter(r => 
+                    r.disciplineId === topic.originalDisciplineId && 
+                    r.status === 'Programada' &&
+                    (r.topicName === topic.name || (cleanTopicLower && stripTopicPrefix(r.topicName || '').toLowerCase() === cleanTopicLower))
+                );
                 if (topicRevisions.length > 0) {
                     const hasLate = topicRevisions.some(r => parseDateYYYYMMDD(r.dueDate) < today);
                     topic.revisionStatus = hasLate ? 'late' : 'on-time';

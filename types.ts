@@ -60,6 +60,19 @@ export interface Topic {
     incidence?: TopicIncidence;
     weight?: number;
     peso?: number;
+    orderIndex?: number;
+    isSubtopic?: boolean;
+    displayNumber?: string;
+    cleanName?: string;
+}
+
+export interface StructuredTopicItem {
+    id?: string;
+    originalName?: string;
+    cleanName: string;
+    isSubtopic: boolean;
+    displayNumber: string;
+    orderIndex: number;
 }
 
 export interface Revision {

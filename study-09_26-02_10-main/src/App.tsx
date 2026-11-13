@@ -11,7 +11,7 @@ import AddDisciplineModal from '../components/AddDisciplineModal';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import StudyLogModal, { StudyLogFormData } from '../components/StudyLogModal';
 import { MenuIcon, XIcon, ClockIcon } from '../constants';
-import { Discipline, StudyPlan, Topic, HistoryLog, StudySession, Revision, GeneratedCycle, SubjectWeight, WeeklyPlanningData, StudyBlock, Simulado, Exam, Deck, Flashcard, UserStudyStreak } from '../types';
+import { Discipline, StudyPlan, Topic, HistoryLog, StudySession, Revision, GeneratedCycle, SubjectWeight, WeeklyPlanningData, StudyBlock, Simulado, Exam, Deck, Flashcard, UserStudyStreak, StructuredTopicItem } from '../types';
 import DisciplinesPage from '../components/DisciplinesPage';
 import EditalPage from '../components/EditalPage';
 import PlanejamentoPage from '../components/PlanejamentoPage';
@@ -33,7 +33,7 @@ import FlashcardReviewModal from '../components/FlashcardReviewModal';
 import { useSupabase } from './components/SupabaseProvider';
 import { supabase } from './lib/supabase';
 import { showSuccess, showError, showLoading, dismissToast } from './utils/toast';
-import { parseTopicsText } from './utils/topicUtils';
+import { parseTopicsText, hydrateOrderedTopics, stripTopicPrefix } from './utils/topicUtils';
 import { parseDate, getTodayAsYYYYMMDDLocal, formatDateToYYYYMMDD } from './utils/dateUtils';
 import { parseTimeToMinutes } from './utils/timeUtils';
 import { DEFAULT_STREAK, recalculateStreakFromEntries, sincronizarOfensivaUsuario as syncUserStreakFromDB, StudyLogEntry } from './utils/streakUtils';
@@ -286,16 +286,8 @@ const App: React.FC = () => {
         showError("Erro ao carregar planos: " + plansError.message);
       } else {
         const hydratedPlans: StudyPlan[] = (plansData || []).map((plan: any) => {
-          const disciplines: Discipline[] = plan.disciplines.map((disc: any) => ({
-            ...disc,
-            topicsText: disc.topics_text,
-            weight: disc.peso !== undefined && disc.peso !== null
-              ? Number(disc.peso)
-              : (disc.weight !== undefined && disc.weight !== null ? Number(disc.weight) : 1.0),
-            peso: disc.peso !== undefined && disc.peso !== null
-              ? Number(disc.peso)
-              : (disc.weight !== undefined && disc.weight !== null ? Number(disc.weight) : 1.0),
-            topicsList: disc.topics.map((topic: any) => ({
+          const disciplines: Discipline[] = plan.disciplines.map((disc: any) => {
+            const rawTopics: Topic[] = (disc.topics || []).map((topic: any) => ({
               id: topic.id, 
               name: topic.name, 
               status: topic.status, 
@@ -304,8 +296,18 @@ const App: React.FC = () => {
               incidence: topic.incidence,
               weight: topic.weight !== undefined ? Number(topic.weight) : (topic.peso !== undefined ? Number(topic.peso) : undefined),
               peso: topic.peso !== undefined ? Number(topic.peso) : (topic.weight !== undefined ? Number(topic.weight) : undefined),
-            })),
-            historyLogs: disc.history_logs.map((log: any) => {
+            }));
+            return {
+              ...disc,
+              topicsText: disc.topics_text,
+              weight: disc.peso !== undefined && disc.peso !== null
+                ? Number(disc.peso)
+                : (disc.weight !== undefined && disc.weight !== null ? Number(disc.weight) : 1.0),
+              peso: disc.peso !== undefined && disc.peso !== null
+                ? Number(disc.peso)
+                : (disc.weight !== undefined && disc.weight !== null ? Number(disc.weight) : 1.0),
+              topicsList: hydrateOrderedTopics(rawTopics, disc.topics_text),
+              historyLogs: disc.history_logs.map((log: any) => {
               const [year, month, day] = log.log_date.split('-');
               const localDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
               localDate.setHours(0, 0, 0, 0);
@@ -316,12 +318,13 @@ const App: React.FC = () => {
                 rawDate: log.log_date,
               };
             }),
-            revisions: disc.revisions.map((rev: any) => ({
-              id: rev.id, originalLogId: rev.original_log_id, topicName: rev.topic_name, dueDate: rev.due_date,
-              status: rev.status, disciplineName: rev.discipline_name, disciplineId: rev.discipline_id,
-              planId: rev.plan_id, disciplineColor: rev.discipline_color, updatedAt: rev.updated_at, originalLogInfo: rev.original_log_info,
-            })),
-          }));
+              revisions: disc.revisions.map((rev: any) => ({
+                id: rev.id, originalLogId: rev.original_log_id, topicName: rev.topic_name, dueDate: rev.due_date,
+                status: rev.status, disciplineName: rev.discipline_name, disciplineId: rev.discipline_id,
+                planId: rev.plan_id, disciplineColor: rev.discipline_color, updatedAt: rev.updated_at, originalLogInfo: rev.original_log_info,
+              })),
+            };
+          });
           return recalculatePlanStats({ ...plan, disciplines });
         });
         setPlans(hydratedPlans);
@@ -603,7 +606,16 @@ const App: React.FC = () => {
     finally { dismissToast(loadingToastId); }
   };
 
-  const handleSaveDiscipline = async (disciplineData: Partial<Discipline> & { name: string; totalTopics: number; color: string; topicsText?: string; weight: number; }) => {
+  const handleSaveDiscipline = async (
+    disciplineData: Partial<Discipline> & {
+      name: string;
+      totalTopics: number;
+      color: string;
+      topicsText?: string;
+      weight: number;
+      structuredTopics?: StructuredTopicItem[];
+    }
+  ) => {
     if (!session?.user?.id) return;
     const userId = session.user.id;
     const targetPlanId = editingDiscipline?.planId || planToAddDisciplineToId;
@@ -612,29 +624,76 @@ const App: React.FC = () => {
     try {
       if (disciplineData.id) {
         const { error } = await supabase.from('disciplines').update({
-          name: disciplineData.name, color: disciplineData.color, topics_text: disciplineData.topicsText, weight: disciplineData.weight, updated_at: new Date().toISOString(),
+          name: disciplineData.name,
+          color: disciplineData.color,
+          topics_text: disciplineData.topicsText,
+          weight: disciplineData.weight,
+          updated_at: new Date().toISOString(),
         }).eq('id', disciplineData.id).eq('user_id', userId);
         if (error) throw error;
 
-        const newTopics = parseTopicsText(disciplineData.topicsText || '');
         const existingTopics = plans.find(p => p.id === targetPlanId)?.disciplines.find(d => d.id === disciplineData.id)?.topicsList || [];
-        
-        const existingNames = new Set(existingTopics.map(t => t.name));
-        const newNames = new Set(newTopics.map(t => t.name));
 
-        const toAdd = newTopics.filter(t => !existingNames.has(t.name));
-        if (toAdd.length > 0) {
-          await supabase.from('topics').insert(toAdd.map(t => ({
-            user_id: userId,
-            discipline_id: disciplineData.id,
-            name: t.name,
-            status: 'Pendente'
-          })));
-        }
+        if (disciplineData.structuredTopics) {
+          const structured = disciplineData.structuredTopics;
+          const keptIds = new Set(structured.filter(t => t.id).map(t => t.id!));
 
-        const toRemoveIds = existingTopics.filter(t => !newNames.has(t.name)).map(t => t.id);
-        if (toRemoveIds.length > 0) {
-          await supabase.from('topics').delete().in('id', toRemoveIds).eq('user_id', userId);
+          // 1. Remover apenas os tópicos que foram explicitamente excluídos pelo usuário
+          const toRemoveIds = existingTopics.filter(t => !keptIds.has(t.id)).map(t => t.id);
+          if (toRemoveIds.length > 0) {
+            await supabase.from('topics').delete().in('id', toRemoveIds).eq('user_id', userId);
+          }
+
+          // 2. Atualizar in-place tópicos existentes cujo nome foi alterado/higienizado (preservando ID e métricas)
+          for (const item of structured) {
+            if (!item.id) continue;
+            const existing = existingTopics.find(et => et.id === item.id);
+            const cleanTargetName = item.cleanName.trim();
+            if (existing && existing.name !== cleanTargetName) {
+              const oldDbName = existing.name;
+              await supabase.from('topics').update({
+                name: cleanTargetName,
+                updated_at: new Date().toISOString(),
+              }).eq('id', item.id).eq('user_id', userId);
+
+              // Sincroniza referências históricas e revisões vinculadas ao nome antigo
+              await Promise.all([
+                supabase.from('history_logs').update({ topic_name: cleanTargetName }).eq('discipline_id', disciplineData.id).eq('topic_name', oldDbName).eq('user_id', userId),
+                supabase.from('revisions').update({ topic_name: cleanTargetName }).eq('discipline_id', disciplineData.id).eq('topic_name', oldDbName).eq('user_id', userId),
+                supabase.from('study_blocks').update({ topic_name: cleanTargetName }).eq('discipline_id', disciplineData.id).eq('topic_id', item.id).eq('user_id', userId),
+              ]);
+            }
+          }
+
+          // 3. Inserir novos tópicos adicionados
+          const toAdd = structured.filter(t => !t.id && t.cleanName.trim() !== '');
+          if (toAdd.length > 0) {
+            await supabase.from('topics').insert(toAdd.map(t => ({
+              user_id: userId,
+              discipline_id: disciplineData.id,
+              name: t.cleanName.trim(),
+              status: 'Pendente',
+            })));
+          }
+        } else {
+          const newTopics = parseTopicsText(disciplineData.topicsText || '');
+          const existingNames = new Set(existingTopics.map(t => t.name));
+          const newNames = new Set(newTopics.map(t => t.name));
+
+          const toAdd = newTopics.filter(t => !existingNames.has(t.name));
+          if (toAdd.length > 0) {
+            await supabase.from('topics').insert(toAdd.map(t => ({
+              user_id: userId,
+              discipline_id: disciplineData.id,
+              name: t.name,
+              status: 'Pendente'
+            })));
+          }
+
+          const toRemoveIds = existingTopics.filter(t => !newNames.has(t.name)).map(t => t.id);
+          if (toRemoveIds.length > 0) {
+            await supabase.from('topics').delete().in('id', toRemoveIds).eq('user_id', userId);
+          }
         }
 
         showSuccess("Disciplina atualizada!");
@@ -643,9 +702,23 @@ const App: React.FC = () => {
           user_id: userId, plan_id: targetPlanId, name: disciplineData.name, color: disciplineData.color, topics_text: disciplineData.topicsText, weight: disciplineData.weight,
         }).select().single();
         if (error) throw error;
-        const topicsList = parseTopicsText(disciplineData.topicsText || '');
-        if (topicsList.length > 0) {
-          await supabase.from('topics').insert(topicsList.map(t => ({ user_id: userId, discipline_id: newDisc.id, name: t.name, status: t.status })));
+
+        if (disciplineData.structuredTopics && disciplineData.structuredTopics.length > 0) {
+          await supabase.from('topics').insert(
+            disciplineData.structuredTopics
+              .filter(t => t.cleanName.trim() !== '')
+              .map(t => ({
+                user_id: userId,
+                discipline_id: newDisc.id,
+                name: t.cleanName.trim(),
+                status: 'Pendente',
+              }))
+          );
+        } else {
+          const topicsList = parseTopicsText(disciplineData.topicsText || '');
+          if (topicsList.length > 0) {
+            await supabase.from('topics').insert(topicsList.map(t => ({ user_id: userId, discipline_id: newDisc.id, name: t.name, status: t.status })));
+          }
         }
         showSuccess("Disciplina criada!");
       }
@@ -841,11 +914,12 @@ const App: React.FC = () => {
 
       if (logModalContext?.source === 'edital' && logModalContext?.topic) {
         const topicName = logModalContext.topic.name;
+        const cleanTopicName = stripTopicPrefix(topicName).toLowerCase();
         const studyDate = logData.date.toISOString().split('T')[0];
 
         const pendingRevisions = plans.flatMap(p =>
           p.disciplines.flatMap(d => (d.revisions || []).filter(r =>
-            r.status === 'Programada' && r.topicName === topicName
+            r.status === 'Programada' && (r.topicName === topicName || (cleanTopicName && stripTopicPrefix(r.topicName || '').toLowerCase() === cleanTopicName))
           ))
         );
 
@@ -1514,16 +1588,19 @@ const App: React.FC = () => {
         onStartStudyForRevision={r => { 
           const plan = plans.find(p => p.id === r.planId);
           const discipline = plan?.disciplines.find(d => d.id === r.disciplineId);
-          const topic = discipline?.topicsList?.find(t => t.name === r.topicName);
+          const cleanRev = stripTopicPrefix(r.topicName || '').toLowerCase();
+          const topic = discipline?.topicsList?.find(t => t.name === r.topicName || (cleanRev && stripTopicPrefix(t.name).toLowerCase() === cleanRev));
           startTimer({ planId: r.planId, disciplineId: r.disciplineId, topicId: topic?.id || null, revisionId: r.id }, 'cronometro', 3600); 
           setTimerModalOpen(true); 
         }} 
         onAddLogForRevisionRequest={r => { 
           const plan = plans.find(p => p.id === r.planId)!;
           const discipline = plan.disciplines.find(d => d.id === r.disciplineId)!;
+          const cleanRev = stripTopicPrefix(r.topicName || '').toLowerCase();
           const topic = discipline.topicsList?.find(t => 
             t.name === r.topicName || 
-            t.name.trim().toLowerCase() === r.topicName?.trim().toLowerCase()
+            t.name.trim().toLowerCase() === r.topicName?.trim().toLowerCase() ||
+            (cleanRev && stripTopicPrefix(t.name).toLowerCase() === cleanRev)
           );
           setLogModalContext({ 
             plan, 

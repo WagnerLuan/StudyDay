@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { StudyPlan, TopicIncidence } from '../../types';
+import { stripTopicPrefix, detectSubtopicFromLine, hydrateOrderedTopics } from './topicUtils';
 
 export interface ParsedTopicImport {
     name: string;
@@ -109,9 +110,9 @@ const isTableColumnsHeader = (rowValues: string[]): boolean => {
 export const formatTopicsToNumberedText = (topics: string[]): string => {
     return topics.map((t, idx) => {
         const trimmed = t.trim();
-        // Se já começa com numeração (ex: "1.", "1.1.", "2.3"), preserva
+        // Se já começa com numeração (ex: "1.", "1.1.", "2.3"), preserva e indenta se for subtópico
         if (/^\s*\d+(\.\d+)*\./.test(trimmed)) {
-            return trimmed;
+            return detectSubtopicFromLine(t) ? `  ${trimmed}` : trimmed;
         }
         return `${idx + 1}. ${trimmed}`;
     }).join('\n');
@@ -378,13 +379,13 @@ export const exportPlanToExcel = (plan: StudyPlan): void => {
     let globalIndex = 1;
 
     plan.disciplines.forEach(disc => {
-        const topics = disc.topicsList && disc.topicsList.length > 0
+        const rawTopics = disc.topicsList && disc.topicsList.length > 0
             ? disc.topicsList
             : (disc.topicsText ? disc.topicsText.split('\n').filter(Boolean).map((t, i) => ({ id: `${i}`, name: t, status: 'Pendente' as const, incidence: 'Média' as TopicIncidence })) : []);
+        const topics = hydrateOrderedTopics(rawTopics, disc.topicsText);
 
         topics.forEach((top) => {
-            let cleanTopicName = top.name.replace(/^\s*\d+(\.\d+)*\.\s*/, '').trim();
-            if (!cleanTopicName) cleanTopicName = top.name;
+            const cleanTopicName = stripTopicPrefix(top.name) || top.name.trim();
 
             tableRows.push([
                 globalIndex++,
@@ -418,16 +419,17 @@ export const exportPlanToExcel = (plan: StudyPlan): void => {
         blockRows.push([`Assunto / tópico do edital - ${disc.name.toUpperCase()}`]);
         blockRows.push(['Nº', 'Assunto / Tópico do Edital', 'Incidência', 'Status']);
 
-        const topics = disc.topicsList && disc.topicsList.length > 0
+        const rawTopics = disc.topicsList && disc.topicsList.length > 0
             ? disc.topicsList
             : (disc.topicsText ? disc.topicsText.split('\n').filter(Boolean).map((t, i) => ({ id: `${i}`, name: t, status: 'Pendente' as const, incidence: 'Média' as TopicIncidence })) : []);
+        const topics = hydrateOrderedTopics(rawTopics, disc.topicsText);
 
         topics.forEach((top, idx) => {
-            let cleanTopicName = top.name.replace(/^\s*\d+(\.\d+)*\.\s*/, '').trim();
-            if (!cleanTopicName) cleanTopicName = top.name;
+            const cleanTopicName = stripTopicPrefix(top.name) || top.name.trim();
+            const numLabel = top.displayNumber ? top.displayNumber.replace(/\.$/, '') : String(idx + 1);
 
             blockRows.push([
-                idx + 1,
+                numLabel,
                 cleanTopicName,
                 top.incidence || 'Média',
                 top.status === 'Concluído' ? 'Concluído' : 'Pendente',

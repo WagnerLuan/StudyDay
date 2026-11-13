@@ -1,12 +1,39 @@
 import * as React from 'react';
-import { Discipline } from '../types';
+import { Discipline, StructuredTopicItem } from '../types';
+import { TrashIcon, PlusIcon } from '../constants';
+import {
+    computeHierarchicalNumbers,
+    formatStructuredTopicsToText,
+    hydrateOrderedTopics,
+    parseBatchTopicsText,
+    stripTopicPrefix,
+} from '../src/utils/topicUtils';
 
 interface AddDisciplineModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (discipline: Partial<Discipline> & { name: string; totalTopics: number; color: string; topicsText?: string; weight: number; }) => void;
+    onSave: (
+        discipline: Partial<Discipline> & {
+            name: string;
+            totalTopics: number;
+            color: string;
+            topicsText?: string;
+            weight: number;
+            structuredTopics?: StructuredTopicItem[];
+        }
+    ) => void;
     disciplineToEdit?: Discipline | null;
 }
+
+interface EditableTopicCardItem {
+    uid: string;
+    id?: string;
+    originalName?: string;
+    cleanName: string;
+    isSubtopic: boolean;
+}
+
+const createUid = () => `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
 // Color conversion utilities
 const hexToRgb = (hex: string) => {
@@ -168,7 +195,7 @@ const AdvancedColorPicker: React.FC<{ selectedColor: string; onSelectColor: (col
                 <svg className={`w-4 h-4 shrink-0 transition-transform ${isOpen ? 'transform rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path></svg>
             </button>
             {isOpen && (
-                <div className="absolute z-10 w-72 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg p-4">
+                <div className="absolute z-20 w-72 mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg p-4">
                     <div className="grid grid-cols-8 gap-2 mb-4">
                         {presetColors.map(color => (
                             <button
@@ -237,28 +264,199 @@ const AdvancedColorPicker: React.FC<{ selectedColor: string; onSelectColor: (col
 
 const AddDisciplineModal: React.FC<AddDisciplineModalProps> = ({ isOpen, onClose, onSave, disciplineToEdit }) => {
     const [name, setName] = React.useState('');
-    const [topicsText, setTopicsText] = React.useState('');
+    const [topicItems, setTopicItems] = React.useState<EditableTopicCardItem[]>([]);
     const [selectedColor, setSelectedColor] = React.useState(presetColors[6]);
     const [weight, setWeight] = React.useState<number | string>(1.0);
 
+    // Batch paste mode
+    const [isBatchOpen, setIsBatchOpen] = React.useState(false);
+    const [batchText, setBatchText] = React.useState('');
+
+    // Drag-and-drop state
+    const [dragEnabledUid, setDragEnabledUid] = React.useState<string | null>(null);
+    const [draggingIndex, setDraggingIndex] = React.useState<number | null>(null);
+    const [dragOverIndex, setDragOverIndex] = React.useState<number | null>(null);
+
+    // Focus management for newly inserted topics
+    const [focusUid, setFocusUid] = React.useState<string | null>(null);
+    const inputRefs = React.useRef<Record<string, HTMLInputElement | null>>({});
+
     React.useEffect(() => {
         if (isOpen) {
+            setIsBatchOpen(false);
+            setBatchText('');
+            setDraggingIndex(null);
+            setDragOverIndex(null);
+            setDragEnabledUid(null);
+            setFocusUid(null);
+
             if (disciplineToEdit) {
                 setName(disciplineToEdit.name);
-                setTopicsText(disciplineToEdit.topicsText || '');
                 setSelectedColor(disciplineToEdit.color || presetColors[6]);
                 setWeight(disciplineToEdit.weight || 1.0);
+
+                if (disciplineToEdit.topicsList && disciplineToEdit.topicsList.length > 0) {
+                    const ordered = hydrateOrderedTopics(disciplineToEdit.topicsList, disciplineToEdit.topicsText);
+                    setTopicItems(
+                        ordered.map((t) => ({
+                            uid: t.id || createUid(),
+                            id: t.id,
+                            originalName: t.name,
+                            cleanName: stripTopicPrefix(t.name) || t.name.trim(),
+                            isSubtopic: Boolean(t.isSubtopic),
+                        }))
+                    );
+                } else if (disciplineToEdit.topicsText && disciplineToEdit.topicsText.trim() !== '') {
+                    const parsed = parseBatchTopicsText(disciplineToEdit.topicsText);
+                    setTopicItems(
+                        parsed.map((p) => ({
+                            uid: createUid(),
+                            cleanName: p.cleanName,
+                            isSubtopic: p.isSubtopic,
+                        }))
+                    );
+                } else {
+                    setTopicItems([]);
+                }
             } else {
                 // Reset for new discipline
                 setName('');
-                setTopicsText('');
+                setTopicItems([]);
                 setSelectedColor(presetColors[6]);
                 setWeight(1.0);
             }
         }
     }, [isOpen, disciplineToEdit]);
 
+    React.useEffect(() => {
+        if (focusUid && inputRefs.current[focusUid]) {
+            inputRefs.current[focusUid]?.focus();
+            setFocusUid(null);
+        }
+    }, [focusUid, topicItems]);
+
+    const numberedItems = React.useMemo(
+        () => computeHierarchicalNumbers(topicItems),
+        [topicItems]
+    );
+
     if (!isOpen) return null;
+
+    const handleTopicNameChange = (uid: string, newValue: string) => {
+        setTopicItems((prev) =>
+            prev.map((item) => (item.uid === uid ? { ...item, cleanName: newValue } : item))
+        );
+    };
+
+    const handleToggleSubtopic = (index: number, makeSubtopic: boolean) => {
+        if (index === 0 && makeSubtopic) return; // Primeiro tópico não pode ser subtópico
+        setTopicItems((prev) =>
+            prev.map((item, idx) =>
+                idx === index ? { ...item, isSubtopic: makeSubtopic } : item
+            )
+        );
+    };
+
+    const handleInsertAt = (insertIndex: number, isSubtopic = false) => {
+        const newUid = createUid();
+        const safeSubtopic = insertIndex === 0 ? false : isSubtopic;
+        setTopicItems((prev) => {
+            const next = [...prev];
+            next.splice(insertIndex, 0, {
+                uid: newUid,
+                cleanName: '',
+                isSubtopic: safeSubtopic,
+            });
+            return next;
+        });
+        setFocusUid(newUid);
+    };
+
+    const handleRemoveAt = (uid: string) => {
+        setTopicItems((prev) => {
+            const filtered = prev.filter((item) => item.uid !== uid);
+            // Garante que o novo primeiro item não fique marcado como subtópico órfão
+            if (filtered.length > 0 && filtered[0].isSubtopic) {
+                filtered[0] = { ...filtered[0], isSubtopic: false };
+            }
+            return filtered;
+        });
+    };
+
+    const handleApplyBatch = (mode: 'append' | 'replace') => {
+        const parsed = parseBatchTopicsText(batchText);
+        if (parsed.length === 0) {
+            setIsBatchOpen(false);
+            setBatchText('');
+            return;
+        }
+
+        const newCards: EditableTopicCardItem[] = parsed.map((p) => ({
+            uid: createUid(),
+            cleanName: p.cleanName,
+            isSubtopic: p.isSubtopic,
+        }));
+
+        if (mode === 'replace') {
+            setTopicItems(newCards);
+        } else {
+            setTopicItems((prev) => {
+                const combined = [...prev.filter((item) => item.cleanName.trim() !== '' || item.id), ...newCards];
+                if (combined.length > 0 && combined[0].isSubtopic) {
+                    combined[0] = { ...combined[0], isSubtopic: false };
+                }
+                return combined;
+            });
+        }
+
+        setBatchText('');
+        setIsBatchOpen(false);
+    };
+
+    // Drag & Drop handlers
+    const handleDragStart = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+        setDraggingIndex(index);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(index));
+    };
+
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (dragOverIndex !== index) {
+            setDragOverIndex(index);
+        }
+    };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>, targetIndex: number) => {
+        e.preventDefault();
+        if (draggingIndex === null || draggingIndex === targetIndex) {
+            setDraggingIndex(null);
+            setDragOverIndex(null);
+            setDragEnabledUid(null);
+            return;
+        }
+
+        setTopicItems((prev) => {
+            const updated = [...prev];
+            const [moved] = updated.splice(draggingIndex, 1);
+            updated.splice(targetIndex, 0, moved);
+            if (updated.length > 0 && updated[0].isSubtopic) {
+                updated[0] = { ...updated[0], isSubtopic: false };
+            }
+            return updated;
+        });
+
+        setDraggingIndex(null);
+        setDragOverIndex(null);
+        setDragEnabledUid(null);
+    };
+
+    const handleDragEnd = () => {
+        setDraggingIndex(null);
+        setDragOverIndex(null);
+        setDragEnabledUid(null);
+    };
 
     const handleSave = () => {
         if (!name.trim()) {
@@ -266,33 +464,54 @@ const AddDisciplineModal: React.FC<AddDisciplineModalProps> = ({ isOpen, onClose
             return;
         }
 
-        const totalTopics = topicsText.split('\n').filter(line => line.trim() !== '').length;
+        const validItems = topicItems
+            .map((item) => ({
+                ...item,
+                cleanName: item.cleanName.trim(),
+            }))
+            .filter((item) => item.cleanName !== '');
+
+        const numbered = computeHierarchicalNumbers(validItems);
+        const topicsText = formatStructuredTopicsToText(validItems);
+        const structuredTopics: StructuredTopicItem[] = numbered.map((item, idx) => ({
+            id: item.id,
+            originalName: item.originalName,
+            cleanName: item.cleanName,
+            isSubtopic: item.isSubtopic,
+            displayNumber: item.displayNumber,
+            orderIndex: idx,
+        }));
 
         onSave({
             id: disciplineToEdit?.id,
-            name,
-            totalTopics,
+            name: name.trim(),
+            totalTopics: structuredTopics.length,
             color: selectedColor,
-            topicsText: topicsText,
+            topicsText,
             weight: Number(weight) || 1.0,
+            structuredTopics,
         });
     };
 
+    const nonEmptyCount = topicItems.filter((t) => t.cleanName.trim() !== '').length;
+
     return (
-        <div 
+        <div
             className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50 p-4"
             onClick={onClose}
         >
-            <div 
-                className="bg-gray-800 rounded-xl shadow-2xl p-8 w-full max-w-3xl text-white transform transition-all"
+            <div
+                className="bg-gray-800 rounded-xl shadow-2xl p-6 sm:p-8 w-full max-w-4xl text-white transform transition-all flex flex-col max-h-[92vh]"
                 onClick={(e) => e.stopPropagation()}
             >
-                <h2 className="text-3xl font-bold text-center mb-8">{disciplineToEdit ? 'Editar Disciplina' : 'Nova Disciplina'}</h2>
+                <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 flex-shrink-0">
+                    {disciplineToEdit ? 'Editar Disciplina' : 'Nova Disciplina'}
+                </h2>
 
-                <div className="space-y-6">
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                <div className="space-y-6 flex-1 min-h-0 flex flex-col">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-6 flex-shrink-0">
                         <div className="md:col-span-5">
-                             <label htmlFor="discipline-name" className="block text-xs font-bold text-emerald-400 uppercase tracking-wide mb-2">
+                            <label htmlFor="discipline-name" className="block text-xs font-bold text-emerald-400 uppercase tracking-wide mb-2">
                                 Nome da Disciplina
                             </label>
                             <input
@@ -320,35 +539,279 @@ const AddDisciplineModal: React.FC<AddDisciplineModalProps> = ({ isOpen, onClose
                             />
                         </div>
                         <div className="md:col-span-4">
-                           <AdvancedColorPicker selectedColor={selectedColor} onSelectColor={setSelectedColor} />
+                            <AdvancedColorPicker selectedColor={selectedColor} onSelectColor={setSelectedColor} />
                         </div>
                     </div>
 
-                    <div>
-                         <label htmlFor="discipline-topics" className="block text-xs font-bold text-emerald-400 uppercase tracking-wide mb-2">
-                            Tópicos <span className="text-gray-400 font-normal normal-case">(use 2 espaços de indentação para subtópicos)</span>
-                        </label>
-                        <textarea
-                            id="discipline-topics"
-                            placeholder="Ex: 1. Direito Constitucional 1.1. Princípios Fundamentais 1.2. Direitos e Garantias Fundamentais"
-                            rows={10}
-                            value={topicsText}
-                            onChange={(e) => setTopicsText(e.target.value)}
-                            className="w-full bg-gray-700 border border-gray-600 text-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-gray-500 resize-y"
-                        ></textarea>
+                    {/* Seção da Lista Interativa Estruturada de Tópicos */}
+                    <div className="flex flex-col flex-1 min-h-0">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5 flex-shrink-0">
+                            <div className="flex items-center gap-2.5">
+                                <span className="block text-xs font-bold text-emerald-400 uppercase tracking-wide">
+                                    Tópicos do Edital
+                                </span>
+                                <span className="text-[11px] font-semibold text-gray-300 bg-gray-700/80 border border-gray-600 px-2 py-0.5 rounded-md">
+                                    {nonEmptyCount} {nonEmptyCount === 1 ? 'tópico' : 'tópicos'}
+                                </span>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => setIsBatchOpen((prev) => !prev)}
+                                className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 cursor-pointer ${
+                                    isBatchOpen
+                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                                        : 'bg-gray-700/70 hover:bg-gray-700 text-gray-300 hover:text-white border-gray-600'
+                                }`}
+                                title="Colar vários tópicos de uma vez (um por linha)"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-emerald-400">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                                </svg>
+                                <span>Colar em lote</span>
+                            </button>
+                        </div>
+
+                        {/* Painel rápido "Colar em lote" */}
+                        {isBatchOpen && (
+                            <div className="mb-3 p-4 bg-gray-900/70 border border-emerald-500/30 rounded-xl space-y-3 flex-shrink-0">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs text-gray-300">
+                                        Cole sua lista abaixo (um tópico por linha). Prefixos antigos (<code className="text-emerald-400">1.</code>, <code className="text-emerald-400">1.1.</code>) serão limpos e subtópicos indentados serão reconhecidos automaticamente.
+                                    </p>
+                                </div>
+                                <textarea
+                                    rows={5}
+                                    value={batchText}
+                                    onChange={(e) => setBatchText(e.target.value)}
+                                    placeholder={"1. Estado, governo e administração pública\n  1.1. Conceito e elementos\n2. Organização Administrativa"}
+                                    className="w-full bg-gray-800 border border-gray-600 text-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-gray-500 resize-y"
+                                    autoFocus
+                                />
+                                <div className="flex flex-wrap justify-end gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsBatchOpen(false);
+                                            setBatchText('');
+                                        }}
+                                        className="px-3 py-1.5 text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg transition-colors cursor-pointer"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    {topicItems.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleApplyBatch('replace')}
+                                            className="px-3 py-1.5 text-xs font-semibold bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 border border-amber-500/40 rounded-lg transition-colors cursor-pointer"
+                                        >
+                                            Substituir lista atual
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        onClick={() => handleApplyBatch('append')}
+                                        className="px-3.5 py-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors cursor-pointer"
+                                    >
+                                        {topicItems.length > 0 ? 'Adicionar à lista' : 'Converter em cards'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Lista Scrollável de Cards */}
+                        <div className="flex-1 min-h-[220px] max-h-[44vh] overflow-y-auto custom-scrollbar bg-gray-900/40 border border-gray-700/80 rounded-xl p-3 space-y-1">
+                            {numberedItems.length === 0 ? (
+                                <div className="py-10 text-center text-gray-400 text-sm space-y-2">
+                                    <p>Nenhum tópico adicionado ainda.</p>
+                                    <p className="text-xs text-gray-500">
+                                        Clique em <span className="text-emerald-400 font-semibold">+ Adicionar Tópico</span> abaixo ou use <span className="text-emerald-400 font-semibold">Colar em lote</span>.
+                                    </p>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Botão discreto para inserir na 1ª posição */}
+                                    <div className="flex items-center justify-center group py-0.5">
+                                        <div className="h-px flex-1 bg-gray-700/40 group-hover:bg-emerald-500/40 transition-colors" />
+                                        <button
+                                            type="button"
+                                            onClick={() => handleInsertAt(0, false)}
+                                            className="mx-2 px-2 py-0.5 rounded-full bg-gray-800 hover:bg-emerald-500 text-gray-400 hover:text-white border border-gray-700 hover:border-emerald-400 text-[11px] font-bold flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                            title="Inserir tópico no início da lista"
+                                        >
+                                            <PlusIcon className="w-3 h-3" />
+                                        </button>
+                                        <div className="h-px flex-1 bg-gray-700/40 group-hover:bg-emerald-500/40 transition-colors" />
+                                    </div>
+
+                                    {numberedItems.map((item, index) => {
+                                        const seqBadge = String(index + 1).padStart(2, '0');
+                                        const isDragging = draggingIndex === index;
+                                        const isDragOver = dragOverIndex === index && draggingIndex !== index;
+
+                                        return (
+                                            <React.Fragment key={item.uid}>
+                                                <div
+                                                    draggable={dragEnabledUid === item.uid}
+                                                    onDragStart={(e) => handleDragStart(e, index)}
+                                                    onDragOver={(e) => handleDragOver(e, index)}
+                                                    onDrop={(e) => handleDrop(e, index)}
+                                                    onDragEnd={handleDragEnd}
+                                                    className={`flex items-center gap-2 p-2 rounded-lg border transition-all ${
+                                                        item.isSubtopic
+                                                            ? 'ml-6 sm:ml-8 border-l-2 border-l-emerald-500/60 bg-gray-800/90'
+                                                            : 'bg-gray-800'
+                                                    } ${
+                                                        isDragOver
+                                                            ? 'border-emerald-400 ring-1 ring-emerald-400/60 bg-emerald-950/30'
+                                                            : 'border-gray-700 hover:border-gray-600'
+                                                    } ${isDragging ? 'opacity-40 scale-[0.99]' : 'opacity-100'}`}
+                                                >
+                                                    {/* Alça lateral de Drag-and-Drop (⋮⋮) */}
+                                                    <button
+                                                        type="button"
+                                                        onMouseDown={() => setDragEnabledUid(item.uid)}
+                                                        onMouseUp={() => setDragEnabledUid(null)}
+                                                        className="p-1 text-gray-500 hover:text-emerald-400 cursor-grab active:cursor-grabbing flex-shrink-0 select-none"
+                                                        title="Arraste para reordenar"
+                                                        aria-label="Reordenar tópico"
+                                                    >
+                                                        <span className="text-sm font-bold tracking-tighter leading-none">⋮⋮</span>
+                                                    </button>
+
+                                                    {/* Badge numérica automática (01, 02, 03...) + preview hierárquico */}
+                                                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                                                        <span
+                                                            className="inline-flex items-center justify-center min-w-[2rem] px-1.5 py-1 rounded-md bg-gray-900/90 border border-emerald-500/30 text-emerald-400 text-xs font-extrabold tabular-nums"
+                                                            title={`Posição na lista: ${seqBadge} | No Edital: ${item.displayNumber}`}
+                                                        >
+                                                            {seqBadge}
+                                                        </span>
+                                                        <span
+                                                            className={`text-[11px] font-bold tabular-nums min-w-[2.1rem] text-center ${
+                                                                item.isSubtopic ? 'text-emerald-300' : 'text-gray-400'
+                                                            }`}
+                                                            title="Numeração hierárquica no Edital Verticalizado"
+                                                        >
+                                                            {item.displayNumber}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Campo de edição limpo (sem prefixos digitados) */}
+                                                    <input
+                                                        ref={(el) => {
+                                                            inputRefs.current[item.uid] = el;
+                                                        }}
+                                                        type="text"
+                                                        value={item.cleanName}
+                                                        onChange={(e) => handleTopicNameChange(item.uid, e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                handleInsertAt(index + 1, item.isSubtopic);
+                                                            }
+                                                        }}
+                                                        placeholder={
+                                                            item.isSubtopic
+                                                                ? 'Nome do subtópico...'
+                                                                : 'Nome do tópico...'
+                                                        }
+                                                        className="flex-1 min-w-0 bg-gray-700/80 border border-gray-600/80 text-gray-100 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 placeholder-gray-500"
+                                                    />
+
+                                                    {/* Controle de Hierarquia (Subtópicos: ↳ / ↲) */}
+                                                    <div className="flex items-center gap-1 flex-shrink-0">
+                                                        {item.isSubtopic ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleToggleSubtopic(index, false)}
+                                                                className="w-7 h-7 flex items-center justify-center rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 text-sm font-bold transition-colors cursor-pointer"
+                                                                title="Promover a tópico principal (recuar para esquerda)"
+                                                                aria-label="Promover a tópico principal"
+                                                            >
+                                                                ↲
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                disabled={index === 0}
+                                                                onClick={() => handleToggleSubtopic(index, true)}
+                                                                className={`w-7 h-7 flex items-center justify-center rounded-md border text-sm font-bold transition-colors ${
+                                                                    index === 0
+                                                                        ? 'bg-gray-800/40 text-gray-600 border-gray-700/40 cursor-not-allowed'
+                                                                        : 'bg-gray-700/60 hover:bg-gray-700 text-gray-300 hover:text-emerald-300 border-gray-600/80 cursor-pointer'
+                                                                }`}
+                                                                title={
+                                                                    index === 0
+                                                                        ? 'O primeiro item deve ser um tópico principal'
+                                                                        : 'Transformar em subtópico (recuar)'
+                                                                }
+                                                                aria-label="Transformar em subtópico"
+                                                            >
+                                                                ↳
+                                                            </button>
+                                                        )}
+
+                                                        {/* Botão de exclusão */}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveAt(item.uid)}
+                                                            className="w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+                                                            title="Remover tópico"
+                                                            aria-label="Remover tópico"
+                                                        >
+                                                            <TrashIcon className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {/* Botão discreto "+" entre os cards para inserir exatamente nesta posição */}
+                                                <div className="flex items-center justify-center group py-0.5">
+                                                    <div className="h-px flex-1 bg-gray-700/40 group-hover:bg-emerald-500/40 transition-colors" />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleInsertAt(index + 1, false)}
+                                                        className="mx-2 px-2 py-0.5 rounded-full bg-gray-800 hover:bg-emerald-500 text-gray-400 hover:text-white border border-gray-700 hover:border-emerald-400 text-[11px] font-bold flex items-center gap-1 opacity-55 group-hover:opacity-100 transition-all cursor-pointer"
+                                                        title={`Inserir novo tópico na posição ${String(index + 2).padStart(2, '0')}`}
+                                                    >
+                                                        <PlusIcon className="w-3 h-3" />
+                                                    </button>
+                                                    <div className="h-px flex-1 bg-gray-700/40 group-hover:bg-emerald-500/40 transition-colors" />
+                                                </div>
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </>
+                            )}
+                        </div>
+
+                        {/* Botão "+ Adicionar Tópico" ao final da lista */}
+                        <div className="mt-3 flex-shrink-0">
+                            <button
+                                type="button"
+                                onClick={() => handleInsertAt(topicItems.length, false)}
+                                className="w-full py-2.5 px-4 rounded-lg border border-dashed border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 font-bold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                            >
+                                <PlusIcon className="w-4 h-4" />
+                                <span>Adicionar Tópico</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div className="flex justify-end items-center gap-4 mt-10">
-                    <button 
+                <div className="flex justify-end items-center gap-4 mt-6 pt-4 border-t border-gray-700 flex-shrink-0">
+                    <button
+                        type="button"
                         onClick={onClose}
-                        className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg transition-colors"
+                        className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded-lg transition-colors cursor-pointer"
                     >
                         Cancelar
                     </button>
-                    <button 
+                    <button
+                        type="button"
                         onClick={handleSave}
-                        className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-6 rounded-lg transition-colors"
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2 px-6 rounded-lg transition-colors cursor-pointer"
                     >
                         Salvar
                     </button>

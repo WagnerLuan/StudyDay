@@ -3,7 +3,7 @@ import { StudyPlan, Discipline, HistoryLog, Topic, TopicIncidence } from '../typ
 import { PlusCircleIcon, LinkIcon, EditIcon, ArrowLeftIcon, CheckIcon } from '../constants';
 import { ResponsiveContainer, LineChart, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Line } from 'recharts';
 import { StudyLogFormData } from './StudyLogModal';
-import { sortTopics } from '../src/utils/topicUtils'; // Importando o novo utilitário de ordenação
+import { sortTopics, computeHierarchicalNumbers, stripTopicPrefix, detectSubtopicFromLine } from '../src/utils/topicUtils'; // Utilitários de ordenação e numeração hierárquica
 
 
 const formatTime = (minutes: number) => {
@@ -223,7 +223,12 @@ const VerticalSyllabus: React.FC<{
     };
 
     const sortedTopics = React.useMemo(() => {
-        let baseTopics = sortTopics(topics);
+        const ordered = sortTopics(topics).map(t => ({
+            ...t,
+            isSubtopic: t.isSubtopic ?? detectSubtopicFromLine(t.name),
+            cleanName: t.cleanName ?? (stripTopicPrefix(t.name) || t.name.trim()),
+        }));
+        const baseTopics = computeHierarchicalNumbers(ordered);
         if (sortOrder === 'original') return baseTopics;
         return [...baseTopics].sort((a, b) => {
             const weightA = INCIDENCE_CONFIG[a.incidence || 'Média'].weight;
@@ -272,10 +277,17 @@ const VerticalSyllabus: React.FC<{
                 </tr>
             </thead>
             <tbody>
-                {sortedTopics.map(topic => (
+                {sortedTopics.map(topic => {
+                    const isSub = Boolean(topic.isSubtopic || topic.name.startsWith('  '));
+                    const displayNum = topic.displayNumber || '';
+                    const cleanTitle = topic.cleanName ?? (stripTopicPrefix(topic.name) || topic.name.trim());
+                    return (
                     <tr key={topic.id} className="border-b border-gray-700 last:border-b-0">
-                        <td className="py-3 pr-3 whitespace-normal break-words" style={{ paddingLeft: topic.name.startsWith('  ') ? '2rem' : '0' }}>
-                            {topic.name.trim()}
+                        <td className="py-3 pr-3 whitespace-normal break-words" style={{ paddingLeft: isSub ? '2rem' : '0' }}>
+                            {displayNum && (
+                                <span className="font-bold text-emerald-400 mr-1.5">{displayNum}</span>
+                            )}
+                            {cleanTitle}
                         </td>
                         <td className="py-3 px-3 text-center">
                             <IncidenceBadge incidence={topic.incidence} onClick={() => handleCycleIncidence(topic)} />
@@ -329,7 +341,8 @@ const VerticalSyllabus: React.FC<{
                             </button>
                         </td>
                     </tr>
-                ))}
+                    );
+                })}
             </tbody>
         </table>
     </div>
