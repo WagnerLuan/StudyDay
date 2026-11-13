@@ -20,6 +20,13 @@ const parseDate = (dateStr: string): Date => {
     return date;
 };
 
+const parseIsoDateLocal = (isoStr: string): Date => {
+    const [y, m, d] = isoStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    date.setHours(0, 0, 0, 0);
+    return date;
+};
+
 const parseTimeToMinutes = (timeStr: string): number => {
     if (!timeStr || timeStr === '-') return 0;
     let totalMinutes = 0;
@@ -38,7 +45,7 @@ const formatTimeHours = (minutes: number) => {
 };
 
 const initialFilters: Filters = {
-    startDate: '', endDate: '', minDuration: '', maxDuration: '',
+    planId: '', startDate: '', endDate: '', minDuration: '', maxDuration: '',
     minPerformance: '', maxPerformance: '', categories: new Set(),
     disciplineName: '', topicName: '',
 };
@@ -60,6 +67,7 @@ type AggregatedTopic = {
     total: number;
     accuracy: number;
     lastStudied: string | null;
+    hasActivity?: boolean;
 }
 
 type AggregatedDiscipline = {
@@ -75,6 +83,7 @@ type AggregatedDiscipline = {
     accuracy: number;
     totalStudyMinutes: number;
     originalDisciplines: { planId: string, disciplineId: string }[];
+    hasActivity?: boolean;
 };
 
 const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: string): AggregatedDiscipline[] => {
@@ -85,12 +94,18 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
         let compareValue = 0;
         switch (order) {
             case 'mostCorrect':
+                if (aHasQuestions && !bHasQuestions) return -1;
+                if (!aHasQuestions && bHasQuestions) return 1;
                 compareValue = b.totalCorrect - a.totalCorrect;
                 break;
             case 'mostIncorrect':
+                if (aHasQuestions && !bHasQuestions) return -1;
+                if (!aHasQuestions && bHasQuestions) return 1;
                 compareValue = b.totalIncorrect - a.totalIncorrect;
                 break;
             case 'mostQuestions':
+                if (aHasQuestions && !bHasQuestions) return -1;
+                if (!aHasQuestions && bHasQuestions) return 1;
                 compareValue = b.totalQuestions - a.totalQuestions;
                 break;
             case 'bestPerformance':
@@ -99,6 +114,7 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
                 if (!aHasQuestions && bHasQuestions) return 1;
                 if (!aHasQuestions && !bHasQuestions) return a.name.localeCompare(b.name);
                 compareValue = b.accuracy - a.accuracy;
+                if (compareValue === 0) compareValue = b.totalQuestions - a.totalQuestions;
                 break;
             case 'worstPerformance':
                 // Disciplinas estudadas da menor % para a maior; não iniciadas ao final
@@ -106,6 +122,7 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
                 if (!aHasQuestions && bHasQuestions) return 1;
                 if (!aHasQuestions && !bHasQuestions) return a.name.localeCompare(b.name);
                 compareValue = a.accuracy - b.accuracy;
+                if (compareValue === 0) compareValue = b.totalQuestions - a.totalQuestions;
                 break;
             default:
                 if (aHasQuestions && !bHasQuestions) return -1;
@@ -123,12 +140,18 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
             let topicCompareValue = 0;
             switch (order) {
                 case 'mostCorrect':
+                    if (aHas && !bHas) return -1;
+                    if (!aHas && bHas) return 1;
                     topicCompareValue = b.correct - a.correct;
                     break;
                 case 'mostIncorrect':
+                    if (aHas && !bHas) return -1;
+                    if (!aHas && bHas) return 1;
                     topicCompareValue = b.incorrect - a.incorrect;
                     break;
                 case 'mostQuestions':
+                    if (aHas && !bHas) return -1;
+                    if (!aHas && bHas) return 1;
                     topicCompareValue = b.total - a.total;
                     break;
                 case 'bestPerformance':
@@ -136,12 +159,14 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
                     if (!aHas && bHas) return 1;
                     if (!aHas && !bHas) return a.name.localeCompare(b.name);
                     topicCompareValue = b.accuracy - a.accuracy;
+                    if (topicCompareValue === 0) topicCompareValue = b.total - a.total;
                     break;
                 case 'worstPerformance':
                     if (aHas && !bHas) return -1;
                     if (!aHas && bHas) return 1;
                     if (!aHas && !bHas) return a.name.localeCompare(b.name);
                     topicCompareValue = a.accuracy - b.accuracy;
+                    if (topicCompareValue === 0) topicCompareValue = b.total - a.total;
                     break;
                 default:
                     if (aHas && !bHas) return -1;
@@ -183,7 +208,13 @@ const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ dat
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-700/50">
-                        {data.map(disc => {
+                        {data.length === 0 ? (
+                            <tr>
+                                <td colSpan={5} className="p-8 text-center text-gray-400 text-sm">
+                                    Nenhum registro encontrado para os filtros aplicados.
+                                </td>
+                            </tr>
+                        ) : data.map(disc => {
                             const isNotStarted = (disc.totalQuestions || 0) === 0;
                             return (
                                 <React.Fragment key={disc.name}>
@@ -216,11 +247,11 @@ const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ dat
                                     {expanded.has(disc.name) && disc.topics.map((topic: AggregatedTopic) => {
                                         const topicNotStarted = (topic.total || 0) === 0;
                                         return (
-                                            <tr key={topic.id} className="bg-gray-900/30 text-xs border-l-4 border-emerald-500/20">
-                                                <td className="py-3 px-4 pl-12 text-gray-400 italic align-middle">{topic.name}</td>
-                                                <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">{topic.correct}</td>
-                                                <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">{topic.incorrect}</td>
-                                                <td className="py-3 px-4 text-center text-gray-500 font-mono text-[15px]">
+                                            <tr key={topic.id} className="bg-gray-900/30 text-sm border-l-4 border-emerald-500/20">
+                                                <td className="py-3 px-4 pl-12 text-slate-200 not-italic align-middle">{topic.name}</td>
+                                                <td className="py-3 px-4 text-center text-slate-300 font-mono text-[15px]">{topic.correct}</td>
+                                                <td className="py-3 px-4 text-center text-slate-300 font-mono text-[15px]">{topic.incorrect}</td>
+                                                <td className="py-3 px-4 text-center text-slate-300 font-mono text-[15px]">
                                                     {topicNotStarted ? '0 / 0 questões' : `${topic.total} questões`}
                                                 </td>
                                                 <td className="py-3 px-4 text-center">
@@ -257,7 +288,9 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
     }, [sortOrder]);
 
     const statsData = React.useMemo(() => {
-        const plansToAggregate = selectedFilterPlanIds.includes('all')
+        const plansToAggregate = activeFilters.planId
+            ? plans.filter(p => p.id === activeFilters.planId)
+            : selectedFilterPlanIds.includes('all')
             ? plans
             : plans.filter(p => selectedFilterPlanIds.includes(p.id));
 
@@ -270,10 +303,13 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             });
         });
 
+        const startDateLocal = activeFilters.startDate ? parseIsoDateLocal(activeFilters.startDate) : null;
+        const endDateLocal = activeFilters.endDate ? parseIsoDateLocal(activeFilters.endDate) : null;
+
         const filteredLogs = allLogs.filter(log => {
             const logDate = parseDate(log.date);
-            if (activeFilters.startDate && logDate < new Date(activeFilters.startDate)) return false;
-            if (activeFilters.endDate && logDate > new Date(activeFilters.endDate)) return false;
+            if (startDateLocal && logDate < startDateLocal) return false;
+            if (endDateLocal && logDate > endDateLocal) return false;
             const duration = parseTimeToMinutes(log.time);
             if (activeFilters.minDuration !== '' && duration < activeFilters.minDuration) return false;
             if (activeFilters.maxDuration !== '' && duration > activeFilters.maxDuration) return false;
@@ -348,7 +384,8 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                         name: disc.name, 
                         color: disc.color || '#8884d8', 
                         topics: {}, 
-                        totalStudyMinutes: 0 
+                        totalStudyMinutes: 0,
+                        hasActivity: false,
                     };
                 }
                 if (disc.topicsList) {
@@ -359,7 +396,8 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                                 name: t.name, 
                                 correct: 0, 
                                 incorrect: 0, 
-                                total: 0 
+                                total: 0,
+                                hasActivity: false,
                             };
                         }
                     });
@@ -369,28 +407,50 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
 
         filteredLogs.forEach(log => {
             const discName = log.disciplineName;
-            if (!byTopic[discName]) byTopic[discName] = { name: discName, color: log.disciplineColor || '#8884d8', topics: {}, totalStudyMinutes: 0 };
+            if (!byTopic[discName]) byTopic[discName] = { name: discName, color: log.disciplineColor || '#8884d8', topics: {}, totalStudyMinutes: 0, hasActivity: false };
             const topicName = log.topic;
-            if (!byTopic[discName].topics[topicName]) byTopic[discName].topics[topicName] = { name: topicName, correct: 0, incorrect: 0, total: 0 };
+            if (!byTopic[discName].topics[topicName]) byTopic[discName].topics[topicName] = { name: topicName, correct: 0, incorrect: 0, total: 0, hasActivity: false };
             const c = Math.max(0, parseInt(String(log.correct), 10) || 0);
             const inc = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
             byTopic[discName].topics[topicName].correct += c;
             byTopic[discName].topics[topicName].incorrect += inc;
             byTopic[discName].topics[topicName].total += (c + inc);
+            byTopic[discName].topics[topicName].hasActivity = true;
             byTopic[discName].totalStudyMinutes += parseTimeToMinutes(log.time);
+            byTopic[discName].hasActivity = true;
         });
 
+        const hasPeriodFilter = Boolean(activeFilters.startDate || activeFilters.endDate);
+        const hasPerformanceFilter = activeFilters.minPerformance !== '' || activeFilters.maxPerformance !== '';
+        const hasOtherLogFilter = Boolean(
+            activeFilters.minDuration !== '' ||
+            activeFilters.maxDuration !== '' ||
+            activeFilters.categories.size > 0 ||
+            activeFilters.disciplineName ||
+            activeFilters.topicName
+        );
+        const hasActivityFilter = hasPeriodFilter || hasPerformanceFilter || hasOtherLogFilter;
+
         const rawTopicPerformanceData: AggregatedDiscipline[] = Object.values(byTopic).map((disc: any) => {
-            const topicsArray: AggregatedTopic[] = Object.values(disc.topics).map((topic: any) => ({
+            let topicsArray: AggregatedTopic[] = Object.values(disc.topics).map((topic: any) => ({
                 id: topic.name,
                 name: topic.name,
-                status: 'Pendente',
+                status: 'Pendente' as const,
                 correct: topic.correct,
                 incorrect: topic.incorrect,
                 total: topic.total,
                 accuracy: topic.total > 0 ? (topic.correct / topic.total) * 100 : 0,
                 lastStudied: null,
+                hasActivity: Boolean(topic.hasActivity),
             }));
+
+            if (hasActivityFilter) {
+                topicsArray = topicsArray.filter(t => {
+                    if (!t.hasActivity) return false;
+                    if (hasPerformanceFilter && t.total === 0) return false;
+                    return true;
+                });
+            }
 
             const totals = topicsArray.reduce((acc, t) => ({
                 correct: (Number(acc.correct) || 0) + (Number(t.correct) || 0),
@@ -400,7 +460,7 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
 
             return {
                 name: disc.name,
-                color: plansToAggregate.flatMap(p => p.disciplines).find(d => d.name === disc.name)?.color || '#8884d8',
+                color: plansToAggregate.flatMap(p => p.disciplines).find(d => d.name === disc.name)?.color || disc.color || '#8884d8',
                 topics: topicsArray,
                 totalTopics: topicsArray.length,
                 completedTopics: 0,
@@ -411,17 +471,51 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                 accuracy: totals.total > 0 ? (totals.correct / totals.total) * 100 : 0,
                 totalStudyMinutes: disc.totalStudyMinutes,
                 originalDisciplines: [],
+                hasActivity: Boolean(disc.hasActivity),
             };
         });
 
-        const topicPerformanceData = sortAggregatedDisciplines(rawTopicPerformanceData, sortOrder);
+        const chartDisciplineData = rawTopicPerformanceData.map(d => ({
+            name: d.name,
+            minutes: d.totalStudyMinutes,
+            color: d.color,
+        }));
+
+        const hasAnyActiveQuestionDiscipline = rawTopicPerformanceData.some(d => d.hasActivity && d.totalQuestions > 0);
+        const tableDisciplines = hasPerformanceFilter
+            ? rawTopicPerformanceData.filter(d => d.hasActivity && d.totalQuestions > 0)
+            : hasPeriodFilter
+            ? rawTopicPerformanceData.filter(d =>
+                  d.hasActivity &&
+                  (d.totalQuestions > 0 || (activeFilters.categories.size > 0 && !hasAnyActiveQuestionDiscipline))
+              )
+            : hasOtherLogFilter
+            ? rawTopicPerformanceData.filter(d => d.hasActivity)
+            : rawTopicPerformanceData;
+
+        const topicPerformanceData = sortAggregatedDisciplines(tableDisciplines, sortOrder);
 
         return {
             overallPerformance, totalCorrect, totalIncorrect, totalStudyMinutes, dailyAverage,
             studyDaysCount: studyDays.size, totalDaysInRange, consistency,
-            topicPerformanceData, totalTopics, completedTopics, syllabusProgress, videoMinutes
+            topicPerformanceData, chartDisciplineData, totalTopics, completedTopics, syllabusProgress, videoMinutes
         };
     }, [plans, activeFilters, sortOrder, selectedFilterPlanIds]);
+
+    const handleApplyFilters = (filters: Filters) => {
+        setActiveFilters(filters);
+        if (filters.planId) {
+            onSelectPlans([filters.planId]);
+        } else if (activeFilters.planId || (selectedFilterPlanIds.length === 1 && selectedFilterPlanIds[0] !== 'all')) {
+            onSelectPlans(['all']);
+        }
+        setIsFilterModalOpen(false);
+    };
+
+    const handleClearFilters = () => {
+        setActiveFilters(initialFilters);
+        onSelectPlans(['all']);
+    };
 
     return (
         <>
@@ -517,13 +611,9 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                 </div>
 
                 {/* GRÁFICO DE TEMPO POR DISCIPLINA */}
-                <DisciplineTimeChart 
-                    data={statsData.topicPerformanceData.map(d => ({
-                        name: d.name,
-                        minutes: d.totalStudyMinutes,
-                        color: d.color
-                    }))} 
-                />
+                <div className="mb-6">
+                    <DisciplineTimeChart data={statsData.chartDisciplineData} />
+                </div>
 
                 {/* SEÇÃO TÓPICO X DESEMPENHO */}
                 <div className="space-y-4">
@@ -536,9 +626,9 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                                 onChange={(e) => setSortOrder(e.target.value)}
                                 className="bg-gray-900 border-none text-xs font-bold text-emerald-400 focus:ring-0 rounded cursor-pointer"
                             >
-                                <option value="bestPerformance">Melhor desempenho</option>
                                 <option value="worstPerformance">Pior desempenho</option>
-                                <option value="mostQuestions">Mais questões</option>
+                                <option value="bestPerformance">Melhor desempenho</option>
+                                <option value="mostQuestions">Mais questões resolvidas</option>
                                 <option value="mostCorrect">Mais acertos</option>
                                 <option value="mostIncorrect">Mais erros</option>
                             </select>
@@ -552,10 +642,11 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             <AdvancedFilterModal
                 isOpen={isFilterModalOpen}
                 onClose={() => setIsFilterModalOpen(false)}
-                onApply={(filters) => { setActiveFilters(filters); setIsFilterModalOpen(false); }}
-                onClear={() => setActiveFilters(initialFilters)}
+                onApply={handleApplyFilters}
+                onClear={handleClearFilters}
                 plans={plans}
                 currentFilters={activeFilters}
+                selectedPlanIds={selectedFilterPlanIds}
             />
         </>
     );

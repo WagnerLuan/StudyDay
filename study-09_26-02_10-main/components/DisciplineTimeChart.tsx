@@ -19,29 +19,29 @@ const DisciplineTimeChart: React.FC<DisciplineTimeChartProps> = ({ data }) => {
             .sort((a, b) => b.hours - a.hours);
     }, [data]);
 
-    // Calcula a altura dinâmica: 50px por barra para dar mais respiro vertical
-    const dynamicHeight = Math.max(400, chartData.length * 50);
+    // Calcula a altura exata da área do gráfico: 56px por barra + margem vertical de respiro
+    const chartHeight = Math.max(320, chartData.length * 56 + 32);
 
     if (chartData.length === 0) {
         return (
-            <div className="bg-gray-800 p-6 rounded-lg shadow-lg h-[400px] flex items-center justify-center">
-                <p className="text-gray-500">Sem dados de tempo para exibir o gráfico.</p>
+            <div className="bg-gray-800 p-6 rounded-lg shadow-lg h-auto min-h-[240px] flex flex-col">
+                <h3 className="font-semibold text-white mb-6 uppercase text-xs tracking-widest">Tempo de Estudo por Disciplina (Horas)</h3>
+                <div className="flex-1 flex items-center justify-center py-10">
+                    <p className="text-gray-500">Sem dados de tempo para exibir o gráfico.</p>
+                </div>
             </div>
         );
     }
 
     return (
-        <div 
-            className="bg-gray-800 p-6 rounded-lg shadow-lg flex flex-col transition-all" 
-            style={{ height: `${dynamicHeight}px` }}
-        >
+        <div className="bg-gray-800 p-6 rounded-lg shadow-lg h-auto flex flex-col overflow-hidden transition-all">
             <h3 className="font-semibold text-white mb-6 uppercase text-xs tracking-widest">Tempo de Estudo por Disciplina (Horas)</h3>
-            <div className="flex-grow">
-                <ResponsiveContainer width="100%" height="100%">
+            <div className="w-full" style={{ height: `${chartHeight}px` }}>
+                <ResponsiveContainer width="100%" height={chartHeight}>
                     <BarChart 
                         data={chartData} 
                         layout="vertical" 
-                        margin={{ left: 0, right: 40, top: 0, bottom: 0 }}
+                        margin={{ left: 0, right: 40, top: 8, bottom: 20 }}
                     >
                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" horizontal={true} vertical={false} />
                         <XAxis type="number" hide />

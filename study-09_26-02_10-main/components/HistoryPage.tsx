@@ -38,7 +38,15 @@ const parseDateLocal = (dateStr: string): Date => {
     return date;
 };
 
+const parseIsoDateLocal = (isoStr: string): Date => {
+    const [y, m, d] = isoStr.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    date.setHours(0, 0, 0, 0);
+    return date;
+};
+
 const initialFilters: Filters = {
+    planId: '',
     startDate: '',
     endDate: '',
     minDuration: '',
@@ -56,7 +64,9 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ plans, onAddLogRequest, onEdi
 
     const allLogs = React.useMemo(() => {
         const logs: AugmentedLog[] = [];
-        const plansToUse = selectedFilterPlanIds.includes('all')
+        const plansToUse = activeFilters.planId
+            ? plans.filter(p => p.id === activeFilters.planId)
+            : selectedFilterPlanIds.includes('all')
             ? plans
             : plans.filter(p => selectedFilterPlanIds.includes(p.id));
 
@@ -75,13 +85,16 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ plans, onAddLogRequest, onEdi
         });
         logs.sort((a, b) => parseDateLocal(b.date).getTime() - parseDateLocal(a.date).getTime());
         return logs;
-    }, [plans, selectedFilterPlanIds]);
+    }, [plans, selectedFilterPlanIds, activeFilters.planId]);
 
     const filteredLogs = React.useMemo(() => {
+        const startDateLocal = activeFilters.startDate ? parseIsoDateLocal(activeFilters.startDate) : null;
+        const endDateLocal = activeFilters.endDate ? parseIsoDateLocal(activeFilters.endDate) : null;
+
         return allLogs.filter(log => {
             const logDate = parseDateLocal(log.date);
-            if (activeFilters.startDate && logDate < new Date(activeFilters.startDate)) return false;
-            if (activeFilters.endDate && logDate > new Date(activeFilters.endDate)) return false;
+            if (startDateLocal && logDate < startDateLocal) return false;
+            if (endDateLocal && logDate > endDateLocal) return false;
             
             const duration = parseTimeToMinutes(log.time);
             if (activeFilters.minDuration !== '' && duration < activeFilters.minDuration) return false;
@@ -137,7 +150,17 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ plans, onAddLogRequest, onEdi
     
     const handleApplyFilters = (filters: Filters) => {
         setActiveFilters(filters);
+        if (filters.planId) {
+            onSelectPlans([filters.planId]);
+        } else if (activeFilters.planId || (selectedFilterPlanIds.length === 1 && selectedFilterPlanIds[0] !== 'all')) {
+            onSelectPlans(['all']);
+        }
         setIsFilterModalOpen(false);
+    };
+
+    const handleClearFilters = () => {
+        setActiveFilters(initialFilters);
+        onSelectPlans(['all']);
     };
 
     const renderCategoryBadges = (categoryStr: string) => {
@@ -259,9 +282,10 @@ const HistoryPage: React.FC<HistoryPageProps> = ({ plans, onAddLogRequest, onEdi
                 isOpen={isFilterModalOpen}
                 onClose={() => setIsFilterModalOpen(false)}
                 onApply={handleApplyFilters}
-                onClear={() => setActiveFilters(initialFilters)}
+                onClear={handleClearFilters}
                 plans={plans}
                 currentFilters={activeFilters}
+                selectedPlanIds={selectedFilterPlanIds}
             />
         </>
     );
