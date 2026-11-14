@@ -6,9 +6,10 @@ interface StudyStreakCardProps {
   streak: UserStudyStreak;
   isLoading?: boolean;
   planName?: string | null;
+  onRecordCardClick?: () => void;
 }
 
-export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoading = false, planName }) => {
+export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoading = false, planName, onRecordCardClick }) => {
   const today = getTodayAsYYYYMMDDLocal();
   const studiedToday = streak.ultimo_dia_estudado === today;
 
@@ -154,22 +155,40 @@ export const StudyStreakCard: React.FC<StudyStreakCardProps> = ({ streak, isLoad
         </div>
 
         {/* 4. Recorde de Questões num Único Dia */}
-        <div className="group bg-gray-800/80 hover:bg-gray-800/95 border border-cyan-500/20 hover:border-cyan-500/40 rounded-xl p-4 transition-all duration-200 shadow-md">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
-              Recorde de Questões
-            </span>
-            <span className="text-lg group-hover:scale-110 transition-transform">⚡</span>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onRecordCardClick}
+          onKeyDown={(e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && onRecordCardClick) {
+              e.preventDefault();
+              onRecordCardClick();
+            }
+          }}
+          className="group bg-gray-800/80 hover:bg-gray-800 border border-cyan-500/20 hover:border-cyan-400/60 rounded-xl p-4 transition-all duration-200 shadow-md hover:shadow-cyan-500/10 cursor-pointer flex flex-col justify-between focus:outline-none focus:ring-2 focus:ring-cyan-400/50"
+        >
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
+                Recorde de Questões
+              </span>
+              <span className="text-lg group-hover:scale-110 transition-transform">⚡</span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-3xl font-black text-white tracking-tight">
+                {streak.questoes_recorde_diario || 0}
+              </span>
+              <span className="text-xs font-semibold text-gray-400">num único dia</span>
+            </div>
           </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-3xl font-black text-white tracking-tight">
-              {streak.questoes_recorde_diario || 0}
+          <div className="flex items-center justify-between gap-2 mt-1">
+            <p className="text-[11px] text-gray-400 truncate">
+              Seu melhor rendimento diário
+            </p>
+            <span className="text-[11px] font-semibold text-cyan-400/90 group-hover:text-cyan-300 transition-colors whitespace-nowrap">
+              Ver detalhes ↗
             </span>
-            <span className="text-xs font-semibold text-gray-400">num único dia</span>
           </div>
-          <p className="text-[11px] text-gray-400 mt-1">
-            Seu melhor rendimento diário
-          </p>
         </div>
       </div>
     </div>

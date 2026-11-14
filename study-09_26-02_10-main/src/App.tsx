@@ -1626,7 +1626,7 @@ const App: React.FC = () => {
         const dPlan = plans.find(p => p.id === dInfo?.planId);
         const dDisc = dPlan?.disciplines.find(d => d.id === dInfo?.disciplineId);
         return dPlan && dDisc ? <DisciplineDetailPage discipline={dDisc} plan={dPlan} onUpdateTopic={handleUpdateTopic} onAddLog={(p, d, t) => { setLogModalContext({ plan: p, discipline: d, topic: t }); setLogModalOpen(true); }} onEditLog={(p, d, l) => { setLogModalContext({ plan: p, discipline: d, logToEdit: l }); setLogModalOpen(true); }} onDeleteLog={(pid, did, lid) => { setLogToDelete({ planId: pid, disciplineId: did, logId: lid }); setLogDeleteModalOpen(true); }} onBack={() => setCurrentPage('planDetail')} /> : null;
-      default: return <Dashboard plans={plans} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} isStreakLoading={isStreakLoading} />;
+      default: return <Dashboard plans={plans} simulados={simulados} exams={exams} userName={userName} onAddExam={() => { setEditingExam(null); setIsAddExamModalOpen(true); }} onEditExam={(exam) => { setEditingExam(exam); setIsAddExamModalOpen(true); }} onDeleteExam={handleDeleteExam} selectedFilterPlanIds={selectedFilterPlanIds} onSelectPlans={setSelectedFilterPlanIds} streak={userStreak} isStreakLoading={isStreakLoading} />;
     }
   };
 

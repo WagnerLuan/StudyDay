@@ -34,6 +34,7 @@ export interface WeeklyStudy {
     day: string;
     time: number; // in minutes
     questions: number;
+    fullDate?: string; // DD/MM/YYYY
 }
 
 export interface HistoryLog {
