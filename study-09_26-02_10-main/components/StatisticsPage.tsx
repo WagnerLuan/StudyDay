@@ -1,14 +1,16 @@
 import * as React from 'react';
-import { StudyPlan, HistoryLog } from '../types';
+import { StudyPlan, Discipline, Topic, HistoryLog } from '../types';
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { PlusCircleIcon, FilterIcon } from '../constants';
 import AdvancedFilterModal, { Filters } from './AdvancedFilterModal';
 import PlanFilter from './PlanFilter';
 import DisciplineTimeChart from './DisciplineTimeChart';
+import { stripTopicPrefix } from '../src/utils/topicUtils';
 
 interface StatisticsPageProps {
     plans: StudyPlan[];
     onAddLogRequest: () => void;
+    onAddLogForTopic?: (plan: StudyPlan, discipline: Discipline, topic: Topic) => void;
     selectedFilterPlanIds: string[];
     onSelectPlans: (planIds: string[]) => void;
 }
@@ -68,6 +70,9 @@ type AggregatedTopic = {
     accuracy: number;
     lastStudied: string | null;
     hasActivity?: boolean;
+    planId?: string;
+    disciplineId?: string;
+    topicId?: string;
 }
 
 type AggregatedDiscipline = {
@@ -179,7 +184,10 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
     });
 };
 
-const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ data }) => {
+const TopicPerformanceTable: React.FC<{
+    data: AggregatedDiscipline[];
+    onQuickAddLog: (disc: AggregatedDiscipline, topic: AggregatedTopic) => void;
+}> = ({ data, onQuickAddLog }) => {
     const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
     const toggleExpand = (name: string) => {
@@ -205,12 +213,13 @@ const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ dat
                             <th className="p-4 text-center">Erros</th>
                             <th className="p-4 text-center">Total</th>
                             <th className="p-4 text-center">Desempenho</th>
+                            <th className="p-4 text-center">Ação</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-700/50">
                         {data.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="p-8 text-center text-gray-400 text-sm">
+                                <td colSpan={6} className="p-8 text-center text-gray-400 text-sm">
                                     Nenhum registro encontrado para os filtros aplicados.
                                 </td>
                             </tr>
@@ -243,6 +252,7 @@ const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ dat
                                                 </span>
                                             )}
                                         </td>
+                                        <td className="p-4 text-center"></td>
                                     </tr>
                                     {expanded.has(disc.name) && disc.topics.map((topic: AggregatedTopic) => {
                                         const topicNotStarted = (topic.total || 0) === 0;
@@ -265,6 +275,20 @@ const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ dat
                                                         </span>
                                                     )}
                                                 </td>
+                                                <td className="py-3 px-4 text-center">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onQuickAddLog(disc, topic);
+                                                        }}
+                                                        title="Registrar estudo / revisão"
+                                                        aria-label={`Registrar estudo / revisão para ${topic.name}`}
+                                                        className="bg-emerald-600 hover:bg-emerald-500 text-white p-1.5 rounded-full inline-flex items-center justify-center transition-colors shadow-sm"
+                                                    >
+                                                        <PlusCircleIcon className="w-5 h-5" />
+                                                    </button>
+                                                </td>
                                             </tr>
                                         );
                                     })}
@@ -278,7 +302,7 @@ const TopicPerformanceTable: React.FC<{ data: AggregatedDiscipline[] }> = ({ dat
     );
 };
 
-const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest, selectedFilterPlanIds, onSelectPlans }) => {
+const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest, onAddLogForTopic, selectedFilterPlanIds, onSelectPlans }) => {
     const [isFilterModalOpen, setIsFilterModalOpen] = React.useState(false);
     const [activeFilters, setActiveFilters] = React.useState<Filters>(initialFilters);
     const [sortOrder, setSortOrder] = React.useState<string>(() => localStorage.getItem('topicPerformanceSortOrder') || 'bestPerformance');
@@ -294,11 +318,11 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             ? plans
             : plans.filter(p => selectedFilterPlanIds.includes(p.id));
 
-        const allLogs: (HistoryLog & { disciplineName: string, disciplineColor: string })[] = [];
+        const allLogs: (HistoryLog & { disciplineName: string, disciplineColor: string, planId: string, disciplineId: string })[] = [];
         plansToAggregate.forEach(plan => {
             plan.disciplines.forEach(disc => {
                 if (disc.historyLogs) {
-                    allLogs.push(...disc.historyLogs.map(log => ({ ...log, disciplineName: disc.name, disciplineColor: disc.color })));
+                    allLogs.push(...disc.historyLogs.map(log => ({ ...log, disciplineName: disc.name, disciplineColor: disc.color, planId: plan.id, disciplineId: disc.id })));
                 }
             });
         });
@@ -386,8 +410,10 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                         topics: {}, 
                         totalStudyMinutes: 0,
                         hasActivity: false,
+                        originalDisciplines: [] as { planId: string; disciplineId: string }[],
                     };
                 }
+                byTopic[disc.name].originalDisciplines.push({ planId: plan.id, disciplineId: disc.id });
                 if (disc.topicsList) {
                     disc.topicsList.forEach(t => {
                         if (activeFilters.topicName && t.name !== activeFilters.topicName) return;
@@ -398,6 +424,10 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                                 incorrect: 0, 
                                 total: 0,
                                 hasActivity: false,
+                                planId: plan.id,
+                                disciplineId: disc.id,
+                                topicId: t.id,
+                                status: t.status,
                             };
                         }
                     });
@@ -407,9 +437,28 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
 
         filteredLogs.forEach(log => {
             const discName = log.disciplineName;
-            if (!byTopic[discName]) byTopic[discName] = { name: discName, color: log.disciplineColor || '#8884d8', topics: {}, totalStudyMinutes: 0, hasActivity: false };
+            if (!byTopic[discName]) {
+                byTopic[discName] = {
+                    name: discName,
+                    color: log.disciplineColor || '#8884d8',
+                    topics: {},
+                    totalStudyMinutes: 0,
+                    hasActivity: false,
+                    originalDisciplines: [{ planId: log.planId, disciplineId: log.disciplineId }],
+                };
+            }
             const topicName = log.topic;
-            if (!byTopic[discName].topics[topicName]) byTopic[discName].topics[topicName] = { name: topicName, correct: 0, incorrect: 0, total: 0, hasActivity: false };
+            if (!byTopic[discName].topics[topicName]) {
+                byTopic[discName].topics[topicName] = {
+                    name: topicName,
+                    correct: 0,
+                    incorrect: 0,
+                    total: 0,
+                    hasActivity: false,
+                    planId: log.planId,
+                    disciplineId: log.disciplineId,
+                };
+            }
             const c = Math.max(0, parseInt(String(log.correct), 10) || 0);
             const inc = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
             byTopic[discName].topics[topicName].correct += c;
@@ -435,13 +484,16 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             let topicsArray: AggregatedTopic[] = Object.values(disc.topics).map((topic: any) => ({
                 id: topic.name,
                 name: topic.name,
-                status: 'Pendente' as const,
+                status: topic.status || ('Pendente' as const),
                 correct: topic.correct,
                 incorrect: topic.incorrect,
                 total: topic.total,
                 accuracy: topic.total > 0 ? (topic.correct / topic.total) * 100 : 0,
                 lastStudied: null,
                 hasActivity: Boolean(topic.hasActivity),
+                planId: topic.planId,
+                disciplineId: topic.disciplineId,
+                topicId: topic.topicId,
             }));
 
             if (hasActivityFilter) {
@@ -470,7 +522,7 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                 totalQuestions: totals.total,
                 accuracy: totals.total > 0 ? (totals.correct / totals.total) * 100 : 0,
                 totalStudyMinutes: disc.totalStudyMinutes,
-                originalDisciplines: [],
+                originalDisciplines: disc.originalDisciplines || [],
                 hasActivity: Boolean(disc.hasActivity),
             };
         });
@@ -515,6 +567,53 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
     const handleClearFilters = () => {
         setActiveFilters(initialFilters);
         onSelectPlans(['all']);
+    };
+
+    const handleQuickAddLog = (disc: AggregatedDiscipline, topic: AggregatedTopic) => {
+        if (!onAddLogForTopic) {
+            onAddLogRequest();
+            return;
+        }
+
+        const candidatePlanId = topic.planId || disc.originalDisciplines?.[0]?.planId;
+        const candidateDiscId = topic.disciplineId || disc.originalDisciplines?.[0]?.disciplineId;
+
+        let targetPlan = candidatePlanId ? plans.find(p => p.id === candidatePlanId) : undefined;
+        let targetDiscipline = targetPlan && candidateDiscId
+            ? targetPlan.disciplines.find(d => d.id === candidateDiscId)
+            : undefined;
+
+        if (!targetPlan || !targetDiscipline) {
+            for (const p of plans) {
+                const foundDisc = p.disciplines.find(d => d.name === disc.name);
+                if (foundDisc) {
+                    targetPlan = p;
+                    targetDiscipline = foundDisc;
+                    break;
+                }
+            }
+        }
+
+        if (!targetPlan || !targetDiscipline) {
+            onAddLogRequest();
+            return;
+        }
+
+        const cleanTopicName = stripTopicPrefix(topic.name).toLowerCase();
+        const matchedTopic = targetDiscipline.topicsList?.find(
+            t =>
+                (topic.topicId && t.id === topic.topicId) ||
+                t.name === topic.name ||
+                (cleanTopicName && stripTopicPrefix(t.name).toLowerCase() === cleanTopicName)
+        );
+
+        const resolvedTopic: Topic = matchedTopic || {
+            id: topic.topicId || '',
+            name: topic.name,
+            status: topic.status || 'Pendente',
+        };
+
+        onAddLogForTopic(targetPlan, targetDiscipline, resolvedTopic);
     };
 
     return (
@@ -635,7 +734,7 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                         </div>
                     </div>
                     
-                    <TopicPerformanceTable data={statsData.topicPerformanceData} />
+                    <TopicPerformanceTable data={statsData.topicPerformanceData} onQuickAddLog={handleQuickAddLog} />
                 </div>
             </div>
             
