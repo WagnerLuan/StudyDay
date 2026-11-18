@@ -67,7 +67,8 @@ const ViewNoteModal: React.FC<ViewNoteModalProps> = ({ isOpen, onClose, note, di
                         className="prose prose-invert max-w-none 
                                    [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 
                                    [&_li]:mb-2 [&_p]:mb-4 [&_strong]:text-white [&_strong]:font-bold
-                                   [&_a]:text-emerald-400 [&_a]:underline"
+                                   [&_a]:text-emerald-400 [&_a]:underline
+                                   [&_img]:max-w-full [&_img]:h-auto [&_img]:rounded-lg [&_img]:my-3 [&_img]:object-contain"
                         dangerouslySetInnerHTML={{ __html: note.content }} 
                     />
                 </main>

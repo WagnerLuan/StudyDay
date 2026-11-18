@@ -43,6 +43,8 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, discipline, topicName, onEdit
             .trim();
     }, [note.content]);
 
+    const hasImage = React.useMemo(() => /<img\b/i.test(note.content), [note.content]);
+
     return (
         <div 
             onClick={onView}
@@ -94,7 +96,7 @@ const NoteCard: React.FC<NoteCardProps> = ({ note, discipline, topicName, onEdit
 
             {/* Descrição Sanitizada */}
             <p className="text-gray-400 text-sm line-clamp-3 flex-grow leading-relaxed">
-                {plainTextContent || 'Sem conteúdo...'}
+                {plainTextContent || (hasImage ? '📷 Contém imagem anexada' : 'Sem conteúdo...')}
             </p>
 
             {/* Rodapé */}
