@@ -1,11 +1,17 @@
 import * as React from 'react';
 import { StudyPlan, Discipline, Topic, HistoryLog } from '../types';
 import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { ChevronRight, ChevronDown } from 'lucide-react';
 import { PlusCircleIcon, FilterIcon } from '../constants';
 import AdvancedFilterModal, { Filters } from './AdvancedFilterModal';
 import PlanFilter from './PlanFilter';
 import DisciplineTimeChart from './DisciplineTimeChart';
-import { stripTopicPrefix } from '../src/utils/topicUtils';
+import {
+    stripTopicPrefix,
+    sortTopics,
+    computeHierarchicalNumbers,
+    detectSubtopicFromLine,
+} from '../src/utils/topicUtils';
 
 interface StatisticsPageProps {
     plans: StudyPlan[];
@@ -61,6 +67,11 @@ const ChevronDownIcon: React.FC<{className?: string}> = ({className}) => (
 type AggregatedTopic = {
     id: string;
     name: string;
+    cleanName?: string;
+    displayNumber?: string;
+    isSubtopic?: boolean;
+    parentTopicId?: string;
+    orderIndex?: number;
     status: 'Concluído' | 'Pendente';
     questionLink?: string;
     completionDate?: string;
@@ -98,6 +109,10 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
 
         let compareValue = 0;
         switch (order) {
+            case 'editalOrder':
+                if (aHasQuestions && !bHasQuestions) return -1;
+                if (!aHasQuestions && bHasQuestions) return 1;
+                return a.name.localeCompare(b.name, 'pt-BR');
             case 'mostCorrect':
                 if (aHasQuestions && !bHasQuestions) return -1;
                 if (!aHasQuestions && bHasQuestions) return 1;
@@ -139,6 +154,12 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
 
     return sortedDisciplines.map(disc => {
         const sortedTopics = [...disc.topics].sort((a, b) => {
+            if (order === 'editalOrder') {
+                const idxA = typeof a.orderIndex === 'number' ? a.orderIndex : Number.MAX_SAFE_INTEGER;
+                const idxB = typeof b.orderIndex === 'number' ? b.orderIndex : Number.MAX_SAFE_INTEGER;
+                return idxA - idxB;
+            }
+
             const aHas = (a.total || 0) > 0;
             const bHas = (b.total || 0) > 0;
 
@@ -186,14 +207,30 @@ const sortAggregatedDisciplines = (disciplines: AggregatedDiscipline[], order: s
 
 const TopicPerformanceTable: React.FC<{
     data: AggregatedDiscipline[];
+    sortOrder: string;
     onQuickAddLog: (disc: AggregatedDiscipline, topic: AggregatedTopic) => void;
-}> = ({ data, onQuickAddLog }) => {
+}> = ({ data, sortOrder, onQuickAddLog }) => {
     const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+    const [expandedTopics, setExpandedTopics] = React.useState<Set<string>>(new Set());
+
+    const isHierarchicalMode = sortOrder === 'editalOrder';
 
     const toggleExpand = (name: string) => {
         const newSet = new Set(expanded);
         newSet.has(name) ? newSet.delete(name) : newSet.add(name);
         setExpanded(newSet);
+    };
+
+    const toggleTopicExpand = (topicKey: string) => {
+        setExpandedTopics(prev => {
+            const next = new Set(prev);
+            if (next.has(topicKey)) {
+                next.delete(topicKey);
+            } else {
+                next.add(topicKey);
+            }
+            return next;
+        });
     };
 
     const getPerfColor = (p: number) => {
@@ -225,11 +262,28 @@ const TopicPerformanceTable: React.FC<{
                             </tr>
                         ) : data.map(disc => {
                             const isNotStarted = (disc.totalQuestions || 0) === 0;
+                            const isDiscExpanded = expanded.has(disc.name);
+
+                            const childrenCountMap = new Map<string, number>();
+                            const visibleParentIds = new Set<string>();
+                            if (isDiscExpanded) {
+                                disc.topics.forEach(t => {
+                                    if (!t.isSubtopic) {
+                                        visibleParentIds.add(t.id);
+                                    } else if (t.parentTopicId) {
+                                        childrenCountMap.set(
+                                            t.parentTopicId,
+                                            (childrenCountMap.get(t.parentTopicId) || 0) + 1
+                                        );
+                                    }
+                                });
+                            }
+
                             return (
                                 <React.Fragment key={disc.name}>
                                     <tr className="bg-gray-800/40 hover:bg-gray-700/50 cursor-pointer transition-colors" onClick={() => toggleExpand(disc.name)}>
                                         <td className="p-4 align-middle font-bold text-white flex items-center gap-3">
-                                            <ChevronDownIcon className={`w-4 h-4 text-gray-500 transition-transform ${expanded.has(disc.name) ? 'rotate-180' : ''}`} />
+                                            <ChevronDownIcon className={`w-4 h-4 text-gray-500 transition-transform ${isDiscExpanded ? 'rotate-180' : ''}`} />
                                             <span className="text-sm uppercase tracking-tight">{disc.name}</span>
                                         </td>
                                         <td className="p-4 text-center text-gray-300 font-mono text-[17px]">{disc.totalCorrect}</td>
@@ -254,11 +308,100 @@ const TopicPerformanceTable: React.FC<{
                                         </td>
                                         <td className="p-4 text-center"></td>
                                     </tr>
-                                    {expanded.has(disc.name) && disc.topics.map((topic: AggregatedTopic) => {
+                                    {isDiscExpanded && disc.topics.map((topic: AggregatedTopic) => {
+                                        const isSubtopic = Boolean(topic.isSubtopic);
+                                        const hasVisibleParent = Boolean(
+                                            isSubtopic && topic.parentTopicId && visibleParentIds.has(topic.parentTopicId)
+                                        );
+                                        const parentExpandKey = topic.parentTopicId
+                                            ? `${disc.name}::${topic.parentTopicId}`
+                                            : '';
+
+                                        if (isHierarchicalMode && hasVisibleParent && !expandedTopics.has(parentExpandKey)) {
+                                            return null;
+                                        }
+
+                                        const topicExpandKey = `${disc.name}::${topic.id}`;
+                                        const hasChildren =
+                                            isHierarchicalMode &&
+                                            !isSubtopic &&
+                                            (childrenCountMap.get(topic.id) || 0) > 0;
+                                        const isTopicExpanded = expandedTopics.has(topicExpandKey);
                                         const topicNotStarted = (topic.total || 0) === 0;
+                                        const displayTitle = topic.cleanName || topic.name;
+
                                         return (
-                                            <tr key={topic.id} className="bg-gray-900/30 text-sm border-l-4 border-emerald-500/20">
-                                                <td className="py-3 px-4 pl-12 text-slate-200 not-italic align-middle">{topic.name}</td>
+                                            <tr
+                                                key={topic.id}
+                                                onClick={hasChildren ? () => toggleTopicExpand(topicExpandKey) : undefined}
+                                                className={
+                                                    isSubtopic
+                                                        ? 'bg-slate-900/40 hover:bg-slate-900/60 text-sm border-l-4 border-slate-700 transition-colors'
+                                                        : `bg-gray-900/30 text-sm border-l-4 border-emerald-500/20 ${
+                                                              hasChildren ? 'cursor-pointer hover:bg-gray-800/60 transition-colors' : ''
+                                                          }`
+                                                }
+                                            >
+                                                <td
+                                                    className={
+                                                        isSubtopic
+                                                            ? 'py-2.5 px-4 pl-16 text-slate-200 not-italic align-middle'
+                                                            : 'py-3 px-4 pl-10 text-slate-200 not-italic align-middle'
+                                                    }
+                                                >
+                                                    {isSubtopic ? (
+                                                        <div className="flex items-start gap-2 border-l-2 border-slate-700 pl-3">
+                                                            <span
+                                                                className="text-slate-500 font-mono text-xs mt-0.5 select-none flex-shrink-0"
+                                                                aria-hidden="true"
+                                                            >
+                                                                └─
+                                                            </span>
+                                                            <span className="leading-snug text-slate-300">
+                                                                {topic.displayNumber && (
+                                                                    <span className="font-bold text-emerald-400/90 mr-1.5">
+                                                                        {topic.displayNumber}
+                                                                    </span>
+                                                                )}
+                                                                <span>{displayTitle}</span>
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex items-start gap-2">
+                                                            {hasChildren ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        toggleTopicExpand(topicExpandKey);
+                                                                    }}
+                                                                    className="mt-0.5 text-gray-400 hover:text-emerald-400 transition-colors flex-shrink-0"
+                                                                    aria-label={
+                                                                        isTopicExpanded
+                                                                            ? `Recolher subtópicos de ${displayTitle}`
+                                                                            : `Expandir subtópicos de ${displayTitle}`
+                                                                    }
+                                                                >
+                                                                    {isTopicExpanded ? (
+                                                                        <ChevronDown className="w-4 h-4 text-emerald-400" />
+                                                                    ) : (
+                                                                        <ChevronRight className="w-4 h-4" />
+                                                                    )}
+                                                                </button>
+                                                            ) : (
+                                                                <span className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+                                                            )}
+                                                            <span className="leading-snug">
+                                                                {topic.displayNumber && (
+                                                                    <span className="font-bold text-emerald-400 mr-1.5">
+                                                                        {topic.displayNumber}
+                                                                    </span>
+                                                                )}
+                                                                <span>{displayTitle}</span>
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </td>
                                                 <td className="py-3 px-4 text-center text-slate-300 font-mono text-[15px]">{topic.correct}</td>
                                                 <td className="py-3 px-4 text-center text-slate-300 font-mono text-[15px]">{topic.incorrect}</td>
                                                 <td className="py-3 px-4 text-center text-slate-300 font-mono text-[15px]">
@@ -305,10 +448,10 @@ const TopicPerformanceTable: React.FC<{
 const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest, onAddLogForTopic, selectedFilterPlanIds, onSelectPlans }) => {
     const [isFilterModalOpen, setIsFilterModalOpen] = React.useState(false);
     const [activeFilters, setActiveFilters] = React.useState<Filters>(initialFilters);
-    const [sortOrder, setSortOrder] = React.useState<string>(() => localStorage.getItem('topicPerformanceSortOrder') || 'bestPerformance');
+    const [sortOrder, setSortOrder] = React.useState<string>(() => localStorage.getItem('topicPerformanceSortOrder_v2') || 'editalOrder');
 
     React.useEffect(() => {
-        localStorage.setItem('topicPerformanceSortOrder', sortOrder);
+        localStorage.setItem('topicPerformanceSortOrder_v2', sortOrder);
     }, [sortOrder]);
 
     const statsData = React.useMemo(() => {
@@ -415,13 +558,36 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                 }
                 byTopic[disc.name].originalDisciplines.push({ planId: plan.id, disciplineId: disc.id });
                 if (disc.topicsList) {
-                    disc.topicsList.forEach(t => {
+                    const orderedRawTopics = sortTopics(disc.topicsList).map(t => ({
+                        ...t,
+                        isSubtopic: t.isSubtopic ?? detectSubtopicFromLine(t.name),
+                        cleanName: t.cleanName ?? (stripTopicPrefix(t.name) || t.name.trim()),
+                    }));
+                    const numberedTopics = computeHierarchicalNumbers(orderedRawTopics);
+                    let currentParentKey: string | null = null;
+
+                    numberedTopics.forEach((t) => {
+                        const topicKey = t.name;
+                        const isSubtopic = Boolean(t.isSubtopic);
+                        const displayNumber = t.displayNumber || '';
+                        const cleanName = t.cleanName || stripTopicPrefix(t.name) || t.name.trim();
+
+                        if (!isSubtopic) {
+                            currentParentKey = topicKey;
+                        }
+                        const parentTopicId = isSubtopic ? (currentParentKey || undefined) : undefined;
+
                         if (activeFilters.topicName && t.name !== activeFilters.topicName) return;
-                        if (!byTopic[disc.name].topics[t.name]) {
-                            byTopic[disc.name].topics[t.name] = { 
-                                name: t.name, 
-                                correct: 0, 
-                                incorrect: 0, 
+                        if (!byTopic[disc.name].topics[topicKey]) {
+                            byTopic[disc.name].topics[topicKey] = {
+                                name: t.name,
+                                cleanName,
+                                displayNumber,
+                                isSubtopic,
+                                parentTopicId,
+                                orderIndex: Object.keys(byTopic[disc.name].topics).length,
+                                correct: 0,
+                                incorrect: 0,
                                 total: 0,
                                 hasActivity: false,
                                 planId: plan.id,
@@ -448,9 +614,50 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                 };
             }
             const topicName = log.topic;
-            if (!byTopic[discName].topics[topicName]) {
-                byTopic[discName].topics[topicName] = {
+            let targetTopicEntry = byTopic[discName].topics[topicName];
+
+            if (!targetTopicEntry) {
+                const cleanLogLower = stripTopicPrefix(topicName || '').toLowerCase();
+                if (cleanLogLower) {
+                    targetTopicEntry =
+                        Object.values(byTopic[discName].topics).find(
+                            (t: any) =>
+                                t.planId === log.planId &&
+                                t.disciplineId === log.disciplineId &&
+                                (t.cleanName || stripTopicPrefix(t.name)).toLowerCase() === cleanLogLower
+                        ) ||
+                        Object.values(byTopic[discName].topics).find(
+                            (t: any) => (t.cleanName || stripTopicPrefix(t.name)).toLowerCase() === cleanLogLower
+                        );
+                }
+            }
+
+            if (!targetTopicEntry) {
+                const isSubtopic = detectSubtopicFromLine(topicName || '');
+                const prefixMatch = (topicName || '').trim().match(/^(\d+(?:\.\d+)*\.?)\s+/);
+                const extractedPrefix = prefixMatch
+                    ? (prefixMatch[1].endsWith('.') ? prefixMatch[1] : `${prefixMatch[1]}.`)
+                    : '';
+                const cleanName = stripTopicPrefix(topicName || '') || (topicName || '').trim();
+
+                let inferredParentId: string | undefined;
+                if (isSubtopic && extractedPrefix) {
+                    const parentPrefix = `${extractedPrefix.split('.')[0]}.`;
+                    const parentMatch = Object.values(byTopic[discName].topics).find(
+                        (t: any) => !t.isSubtopic && t.displayNumber === parentPrefix
+                    ) as any;
+                    if (parentMatch) {
+                        inferredParentId = parentMatch.name;
+                    }
+                }
+
+                targetTopicEntry = {
                     name: topicName,
+                    cleanName,
+                    displayNumber: extractedPrefix,
+                    isSubtopic,
+                    parentTopicId: inferredParentId,
+                    orderIndex: Object.keys(byTopic[discName].topics).length,
                     correct: 0,
                     incorrect: 0,
                     total: 0,
@@ -458,13 +665,14 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                     planId: log.planId,
                     disciplineId: log.disciplineId,
                 };
+                byTopic[discName].topics[topicName] = targetTopicEntry;
             }
             const c = Math.max(0, parseInt(String(log.correct), 10) || 0);
             const inc = Math.max(0, parseInt(String(log.incorrect), 10) || 0);
-            byTopic[discName].topics[topicName].correct += c;
-            byTopic[discName].topics[topicName].incorrect += inc;
-            byTopic[discName].topics[topicName].total += (c + inc);
-            byTopic[discName].topics[topicName].hasActivity = true;
+            targetTopicEntry.correct += c;
+            targetTopicEntry.incorrect += inc;
+            targetTopicEntry.total += (c + inc);
+            targetTopicEntry.hasActivity = true;
             byTopic[discName].totalStudyMinutes += parseTimeToMinutes(log.time);
             byTopic[discName].hasActivity = true;
         });
@@ -484,6 +692,11 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
             let topicsArray: AggregatedTopic[] = Object.values(disc.topics).map((topic: any) => ({
                 id: topic.name,
                 name: topic.name,
+                cleanName: topic.cleanName,
+                displayNumber: topic.displayNumber,
+                isSubtopic: topic.isSubtopic,
+                parentTopicId: topic.parentTopicId,
+                orderIndex: topic.orderIndex,
                 status: topic.status || ('Pendente' as const),
                 correct: topic.correct,
                 incorrect: topic.incorrect,
@@ -725,6 +938,7 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                                 onChange={(e) => setSortOrder(e.target.value)}
                                 className="bg-gray-900 border-none text-xs font-bold text-emerald-400 focus:ring-0 rounded cursor-pointer"
                             >
+                                <option value="editalOrder">Ordem do edital</option>
                                 <option value="worstPerformance">Pior desempenho</option>
                                 <option value="bestPerformance">Melhor desempenho</option>
                                 <option value="mostQuestions">Mais questões resolvidas</option>
@@ -734,7 +948,7 @@ const StatisticsPage: React.FC<StatisticsPageProps> = ({ plans, onAddLogRequest,
                         </div>
                     </div>
                     
-                    <TopicPerformanceTable data={statsData.topicPerformanceData} onQuickAddLog={handleQuickAddLog} />
+                    <TopicPerformanceTable data={statsData.topicPerformanceData} sortOrder={sortOrder} onQuickAddLog={handleQuickAddLog} />
                 </div>
             </div>
             
